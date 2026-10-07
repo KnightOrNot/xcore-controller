@@ -80,7 +80,8 @@ cd /home/knight/projects/xcore/xcore-controller
 
 脚本实现位于 SDK 仓库的 [scripts/start_gello_follow.sh](xcore-sdk-python/scripts/start_gello_follow.sh)，本目录的同名脚本是便捷入口。仅克隆 SDK 仓库时，可直接运行 `./scripts/start_gello_follow.sh`。各操作也保留 `uv run xcore-sdk-python [指令] [参数]` 接口。
 
-本流程覆盖六轴关节跟随；夹爪联动和仿真显示未接入。原生 SDK／非实时运动已有实机记录，新的实时跟随已完成离线测试，尚未在当前 Python 3.11 + SDK 0.7.1 组合下完成真机启停与连续跟随验收。
+本流程默认覆盖六轴关节跟随；指定 `--gripper-host` 可同时跟随独立外接夹爪，见下方。
+原生 SDK／非实时运动已有实机记录；实时跟随及夹爪联动已完成离线测试，尚未完成真机启停与连续跟随验收。
 
 - [命令与快速启动](xcore-sdk-python/README.md)
 - [工程搭建、模块职责与验证边界](xcore-sdk-python/docs/DEVELOPMENT.md)
@@ -94,6 +95,31 @@ cd /home/knight/projects/xcore/xcore-controller
 ```bash
 ./start_gripper.sh --serial-port /dev/ttyUSB0
 ```
+
+上面的串口必须属于夹爪 RS485 适配器，与 GELLO 串口不同；优先使用实际
+`/dev/serial/by-id/...` 路径。夹爪服务启动会激活夹爪。
+
+服务就绪后，在另一终端运行统一跟随入口；同机服务使用 `127.0.0.1`，
+异机服务使用夹爪 USB 所在电脑的 IP：
+
+```bash
+# 只读预览：不发送机械臂或夹爪运动目标
+./start_gello_follow.sh --gripper-host 127.0.0.1
+
+# 对齐初始姿态、核对标定后，六轴与夹爪同时跟随
+./start_gello_follow.sh --gripper-host 127.0.0.1 --enable-motion
+```
+
+同一客户端每帧读取 GELLO 六轴和 ID 7 扳机，再分别发送到 CR7 六轴服务和夹爪 TCP 服务。
+默认六轴 50 Hz、夹爪 5 Hz。夹爪工作线程只发送最新闭合度，不阻塞机械臂目标更新；
+服务端允许运动中修改目标。`--gripper-open-deg` / `--gripper-close-deg` 默认
+194.8° / 153°，需按实测确认；实际夹爪端点通过 `--gripper-open-pos` /
+`--gripper-closed-pos` 设置，速度、力度通过 `--gripper-speed` / `--gripper-force` 设置。
+
+跟随期间仅统一客户端读取 GELLO，不同时启动 `read` 或仿真跟随进程。
+Ctrl+C 停止客户端时发送夹爪停止请求，并退出 CR7 跟随；夹爪默认 1.5 s 未收到刷新
+会触发服务端停止保护。真实的响应速度和停止效果仍需实机验收。
+完整参数与测试边界见 [SDK README](xcore-sdk-python/README.md)。
 
 查看各子项目的独立命令：
 
