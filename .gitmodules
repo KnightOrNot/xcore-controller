@@ -1,0 +1,9 @@
+[submodule "xcore-sdk-python"]
+	path = xcore-sdk-python
+	url = git@github.com:KnightOrNot/xcore-sdk-python.git
+[submodule "xcore-gello-software"]
+	path = xcore-gello-software
+	url = git@github.com:KnightOrNot/xcore-gello-software.git
+[submodule "xcore-gripper-2F85"]
+	path = xcore-gripper-2F85
+	url = git@github.com:KnightOrNot/xcore-gripper-2F85.git

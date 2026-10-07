@@ -4,13 +4,13 @@
 
 # xCore / xMate CR7 项目调研
 
-调研日期：2026-09-21；实机进展更新：2026-10-04。ROS 仿真仍处于调研阶段；Python SDK 已连接实机并读取状态。快速使用见 [xcoresdk-python/README.md](../xcoresdk-python/README.md)，框架搭建见 [docs/DEVELOPMENT.md](../xcoresdk-python/docs/DEVELOPMENT.md)。
+调研日期：2026-09-21；实机进展更新：2026-10-04。ROS 仿真仍处于调研阶段；Python SDK 已连接实机并读取状态。快速使用见 [xcore-sdk-python/README.md](../xcore-sdk-python/README.md)，框架搭建见 [docs/DEVELOPMENT.md](../xcore-sdk-python/docs/DEVELOPMENT.md)。
 
 **建议采用 Ubuntu 22.04 + ROS 2 Humble + MoveIt 2 + 官方 `rokae_ros2`，先完成假硬件仿真，再接入 CR7。前置条件是确认这台旧款 CR7 的模型和控制器兼容性。** 如果目标只是离线工艺编程，也可以评估 RokaeStudio。现有 Python SDK 可用于应用开发及状态采集，但本身不是仿真器。
 
 ## 1. 实际使用的 CR7：以本地手册为基准
 
-资料：[xMate CR7 硬件安装手册 V0.1](<../xMate CR7硬件安装手册-V0.1.pdf>)，文档标识 `202205190747/V0.1`。以下页码为手册印刷页码。
+资料：[xMate CR7 硬件安装手册 V0.1](<xMate CR7硬件安装手册-V0.1.pdf>)，文档标识 `202205190747/V0.1`。以下页码为手册印刷页码。
 
 | 项目            | 本项目手册中的参数        | 位置        |
 | ------------- | ---------------- | --------- |
@@ -35,9 +35,9 @@
 | --------------------------- | -------------------------------------------- | --------------------------------- |
 | 指定网站 ROS2 手册                | V0.0.2，发布日期 2026-04-10；Ubuntu 22.04 / Humble | 理解架构和参数；接口以所选源码为准                 |
 | 官方 `rokae_ros2` 主分支 README  | 栈 0.0.4；C++ SDK 0.7.1；xCore 控制器 ≥ 3.2.1      | 作为当前官方栈的兼容性基线                     |
-| 本地 `xcoresdk-python`（已更新 SDK 0.7.1） | README 要求控制器 ≥ 3.2.1；实机正是 3.2.1 | Python 原生 SDK 与 CLI 已读取实机，ROS2 仍需单独验证 |
+| 本地 `xcore-sdk-python`（已更新 SDK 0.7.1） | README 要求控制器 ≥ 3.2.1；实机正是 3.2.1 | Python 原生 SDK 与 CLI 已读取实机，ROS2 仍需单独验证 |
 
-来源：[官方 ROS2 仓库](https://github.com/RokaeRobot/rokae_ros2)、[本地 Python SDK README](../xcoresdk-python/docs/README.md)。主分支会变化，正式搭建时必须记录 commit、SDK 包版本和控制器版本，固定经过验证的组合。
+来源：[官方 ROS2 仓库](https://github.com/RokaeRobot/rokae_ros2)、[本地 Python SDK README](../xcore-sdk-python/docs/README.md)。主分支会变化，正式搭建时必须记录 commit、SDK 包版本和控制器版本，固定经过验证的组合。
 
 ## 3. 仿真方案分别能做什么
 
@@ -62,7 +62,7 @@ ROS2 参数与模型支持见[指定站点使用说明](http://sw.rokae.com:8989
 使用 Ubuntu 22.04 x86_64、ROS2 Humble；建议 16 GB 内存、至少 20 GB 可用磁盘。先按 [ROS2 Humble 官方安装文档](https://docs.ros.org/en/humble/Installation/Ubuntu-Install-Debs.html)完成基础安装，再安装 MoveIt 2、ros2_control、colcon、rosdep 等依赖。硬件建议和常用包见[珞石使用说明](http://sw.rokae.com:8989/docs/ROS2/rokae_ros2_manual)。
 
 ```bash
-cd /home/knight/projects/xcore
+cd /home/knight/projects/xcore/xcore-controller
 mkdir -p ros2_ws/src
 git clone https://github.com/RokaeRobot/rokae_ros2.git ros2_ws/src/rokae_ros2
 git -C ros2_ws/src/rokae_ros2 rev-parse HEAD
@@ -75,7 +75,7 @@ cat ros2_ws/src/rokae_ros2/rokae_hardware/sdk/VERSION
 
 ```bash
 source /opt/ros/humble/setup.bash
-cd /home/knight/projects/xcore/ros2_ws
+cd /home/knight/projects/xcore/xcore-controller/ros2_ws
 # 前提：rosdep 已初始化；新系统按 rosdep 文档完成一次初始化。
 rosdep update
 rosdep install --from-paths src/rokae_ros2 --ignore-src -r -y
@@ -89,7 +89,7 @@ source install/setup.bash
 
 ```bash
 source /opt/ros/humble/setup.bash
-source /home/knight/projects/xcore/ros2_ws/install/setup.bash
+source /home/knight/projects/xcore/xcore-controller/ros2_ws/install/setup.bash
 ros2 launch rokae_hardware rokae_moveit_launch.py \
   robot_type:=CR7 \
   use_fake_hardware:=true
@@ -161,11 +161,11 @@ ros2 launch rokae_hardware rokae_moveit_launch.py \
 
 ## 6. 当前 Python SDK 可以如何使用
 
-当前本地使用 SDK 0.7.1、CPython 3.11.16，Linux 扩展为 `cpython-311-x86_64-linux-gnu.so`。已完成原生 SDK 连接及状态、关节、法兰位姿、软限位和 DH 参数读取，并搭建 `uv run xcore [指令] [参数]` 框架。解释器必须匹配扩展 ABI；SDK 可以支持多个 Python 版本，但同一 `cpython-310` 扩展不能直接用于 3.11。
+当前本地使用 SDK 0.7.1、CPython 3.11.16，Linux 扩展为 `cpython-311-x86_64-linux-gnu.so`。已完成原生 SDK 连接及状态、关节、法兰位姿、软限位和 DH 参数读取，并搭建 `uv run xcore-sdk-python [指令] [参数]` 框架。解释器必须匹配扩展 ABI；SDK 可以支持多个 Python 版本，但同一 `cpython-310` 扩展不能直接用于 3.11。
 
-六轴 CR7 使用 `xMateRobot`；本机返回 `XMC7-R850-W4X3B4`、6 轴、控制器 3.2.1。实际 IP 为 **`192.168.2.160`**。快速启动和验证边界见 [SDK 使用说明](../xcoresdk-python/README.md)，原生 SDK 最小查询、架构和完整命令见 [开发文档](../xcoresdk-python/docs/DEVELOPMENT.md)。
+六轴 CR7 使用 `xMateRobot`；本机返回 `XMC7-R850-W4X3B4`、6 轴、控制器 3.2.1。实际 IP 为 **`192.168.2.160`**。快速启动和验证边界见 [SDK 使用说明](../xcore-sdk-python/README.md)，原生 SDK 最小查询、架构和完整命令见 [开发文档](../xcore-sdk-python/docs/DEVELOPMENT.md)。
 
-厂商部分示例会自动上电或运动，首次建议运行 `uv run xcore doctor` 和 `uv run xcore status`。查询不发送上电或运动准备指令，但 SDK 断连会停止已有运动，应在机器人空闲、无其他 SDK 控制会话时使用。原生 SDK 已完成第六轴小幅运动与返回测试；CLI `move-joint` 和 `movej` 随后已实测成功；最新默认速度参数为 1000，J6 当前配置下实测峰值约 40°/s。
+厂商部分示例会自动上电或运动，首次建议运行 `uv run xcore-sdk-python doctor` 和 `uv run xcore-sdk-python status`。查询不发送上电或运动准备指令，但 SDK 断连会停止已有运动，应在机器人空闲、无其他 SDK 控制会话时使用。原生 SDK 已完成第六轴小幅运动与返回测试；CLI `move-joint` 和 `movej` 随后已实测成功；最新默认速度参数为 1000，J6 当前配置下实测峰值约 40°/s。
 
 ## 7. RokaeStudio 备选路线
 
@@ -195,4 +195,4 @@ ros2 launch rokae_hardware rokae_moveit_launch.py \
 
 已读取型号、控制器版本、电源／操作／运行状态、关节角、法兰位姿、软限位及校准／标称 DH 参数。首次查询时为下电、手动、空闲；随后原生 SDK 已完成上电、自动模式、第六轴约 +1° 运动与返回，并恢复下电／手动／空闲。SDK 关节数组有 12 项、DH 有 28 项；框架按六轴解析前 6 个角度和前 24 个 DH 值，额外槽位单独保留。
 
-框架支持 `doctor`、`network`、`status`、`info`、`joints`、`pose`、`limits`、`dh`、`monitor`、`power`、`mode`、`stop`、`movej`、`move-joint`、`check`。原生 SDK 非实时运动已验证；首次使用 0.05° 全轴容差超时，随后以框架默认 0.2° 容差成功返回保存的原始位置，最大六轴误差约 0.080°。CLI `move-joint` 与 `movej` 随后已在速度实验中验证，默认速度最终设为 1000；实验数据见搭建文档。见 [快速启动](../xcoresdk-python/README.md)和 [搭建文档](../xcoresdk-python/docs/DEVELOPMENT.md)。
+框架支持 `doctor`、`network`、`status`、`info`、`joints`、`pose`、`limits`、`dh`、`monitor`、`power`、`mode`、`stop`、`movej`、`move-joint`、`check`。原生 SDK 非实时运动已验证；首次使用 0.05° 全轴容差超时，随后以框架默认 0.2° 容差成功返回保存的原始位置，最大六轴误差约 0.080°。CLI `move-joint` 与 `movej` 随后已在速度实验中验证，默认速度最终设为 1000；实验数据见搭建文档。见 [快速启动](../xcore-sdk-python/README.md)和 [搭建文档](../xcore-sdk-python/docs/DEVELOPMENT.md)。
