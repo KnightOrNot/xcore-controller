@@ -7,3 +7,6 @@
 [submodule "xcore-gripper-2F85"]
 	path = xcore-gripper-2F85
 	url = git@github.com:KnightOrNot/xcore-gripper-2F85.git
+[submodule "lerobot-converter"]
+	path = lerobot-converter
+	url = git@github.com:KnightOrNot/lerobot-converter.git

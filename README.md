@@ -1,6 +1,6 @@
 # xcore-controller：xMate CR7 与 GELLO 跟随
 
-当前使用 Python SDK 控制六轴 CR7，并通过一个 shell 脚本启动主臂跟随。顶层仓库组合三个独立子模块，各自维护 Python 环境；工程组织参考 agilex-controller。
+当前使用 Python SDK 控制六轴 CR7，独立控制 Robotiq 夹爪，并提供统一跟随、数据记录和 LeRobot 转换入口。顶层仓库组合四个独立子模块，各自维护 Python 环境；工程组织参考 agilex-controller。
 
 ## 项目结构与初始化
 
@@ -9,9 +9,12 @@ xcore-controller/
 ├── xcore-sdk-python/       # submodule：CR7 SDK、ZMQ 服务与六轴跟随
 ├── xcore-gello-software/   # submodule：GELLO 主臂读取与仿真
 ├── xcore-gripper-2F85/     # submodule：Robotiq 2F-85 TCP 服务与客户端
+├── lerobot-converter/      # submodule：原有 PiPER-X 转换器，保持原样
+├── tools/convert_cr7.py    # 控制器侧 CR7 适配，复用转换器的数据集写入
 ├── setup.sh               # 初始化子模块和独立 Python 环境
 ├── start_gello_follow.sh  # CR7 跟随入口
-└── start_gripper.sh       # 夹爪服务器入口
+├── start_gripper.sh       # 夹爪服务器入口
+└── start_data_record.sh   # 跟随时记录从臂反馈，退出后离线转换
 ```
 
 ```bash
@@ -21,7 +24,8 @@ cd xcore-controller
 ./setup.sh --check-only
 ```
 
-需预先安装 git、pyenv、uv 和 Python 3.11（例如 `pyenv install -s 3.11.16`）。
+需预先安装 git、pyenv、uv 和 Python 3.11 / 3.12（例如 `pyenv install -s 3.11.16`、
+`pyenv install -s 3.12.14`）。转换器使用独立 Python 3.12，安装锁定的 CPU 数据集依赖。
 SDK 与夹爪使用各自的 `uv.lock`；GELLO 保留原有 `requirements.txt` 安装方式。
 厂商 SDK 二进制需按 [SDK 安装说明](xcore-sdk-python/docs/README.md) 安装到 SDK 子模块。
 本机使用 CPython 3.11 对应的 Linux 扩展；二进制和现场标定文件不纳入 Git。
@@ -32,6 +36,7 @@ SDK 与夹爪使用各自的 `uv.lock`；GELLO 保留原有 `requirements.txt` �
 | xcore-sdk-python | `xcore_sdk_python` | `xcore-sdk-python` |
 | xcore-gello-software | `xcore_gello_software` | `xcore-gello-software` |
 | xcore-gripper-2F85 | `xcore_gripper_2f85` | `xcore-gripper-2f85`、`xcore-gripper-2f85-server` |
+| lerobot-converter | `lerobot_converter` | `lerobot-converter` |
 
 ## 首次安装与标定
 
@@ -120,6 +125,52 @@ cd /home/knight/projects/xcore/xcore-controller
 Ctrl+C 停止客户端时发送夹爪停止请求，并退出 CR7 跟随；夹爪默认 1.5 s 未收到刷新
 会触发服务端停止保护。真实的响应速度和停止效果仍需实机验收。
 完整参数与测试边界见 [SDK README](xcore-sdk-python/README.md)。
+
+## 从臂六轴与夹爪数据记录和转换
+
+先启动上面的夹爪服务，再运行记录入口。它包含统一跟随流程，不同时启动普通
+`start_gello_follow.sh` 或其他 GELLO 读取进程；启动时仍要求现场标定和姿态对齐。
+
+```bash
+./start_data_record.sh --task "pick up the object"
+# 自定义夹爪地址、数据集帧率，并在对齐后立即记录第一段
+./start_data_record.sh --gripper-host 127.0.0.1 --task "pick object" \
+  --dataset-fps 30 --start-recording
+```
+
+R 开始 episode，S 保存，D 丢弃，P 查看状态，H 查看帮助。
+Ctrl+C 先停止跟随并关闭 SDK 服务，再转换已经保存的 episode。
+未保存的 episode 留为 `.jsonl.partial`，不会被当作正式训练数据转换。
+
+```text
+data/raw/session_*/manifest.json
+data/raw/session_*/episodes/episode_000000.jsonl
+data/raw/session_*/episodes/episode_000001.jsonl.partial
+data/lerobot/session_*/data/ + meta/ + quality_report.json
+```
+
+`action` 为七维请求目标；`observation.state` 为六轴实际 SDK 关节角加实际夹爪
+闭合度。记录同时保留两路反馈时间戳、年龄和夹爪原始位置，不用主臂目标替代实测反馈。
+夹爪闭合度通过实际位置及夹爪端点标定归一化到 0～1。
+CR7 数据不填充不存在的速度或末端位姿 feature。
+默认 raw 循环 50 Hz，转换 30 FPS；反馈仍按各自实际刷新率更新，质量报告显示
+两路反馈频率和最大年龄。反馈缺失/过期或写盘队列满会停止跟随并保留 `.partial`。
+
+只记录原始数据、稍后手工转换：
+
+```bash
+./start_data_record.sh --task "pick object" --skip-conversion
+./lerobot-converter/.venv/bin/python tools/convert_cr7.py \
+  data/raw/session_YYYYMMDD_HHMMSS data/lerobot/session_YYYYMMDD_HHMMSS \
+  --repo-id local/cr7_gello_session_YYYYMMDD_HHMMSS --fps 30
+```
+
+可用 `--raw-data-root` / `--lerobot-data-root` 更改目录。
+输出目录必须不存在，转换不覆盖旧数据，不上传到 Hugging Face。
+`lerobot-converter` 子模块保持原样。CR7 的适配全部位于控制器新增
+`tools/convert_cr7.py`，复用其重采样和数据集写入功能；
+说明见 [数据记录与转换](docs/DATA_RECORDING.md)。
+已完成离线记录/退出测试和真实 LeRobot 数据集写入验证；本机从臂真机采集尚待验收。
 
 查看各子项目的独立命令：
 
