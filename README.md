@@ -80,7 +80,7 @@ cd /home/knight/projects/xcore/xcore-controller
 
 脚本实现位于 SDK 仓库的 [scripts/start_gello_follow.sh](xcore-sdk-python/scripts/start_gello_follow.sh)，本目录的同名脚本是便捷入口。仅克隆 SDK 仓库时，可直接运行 `./scripts/start_gello_follow.sh`。各操作也保留 `uv run xcore-sdk-python [指令] [参数]` 接口。
 
-真机 SDK 启动流程覆盖六轴关节跟随，夹爪真机联动未接入；GELLO 仿真可单独验证扳机与夹爪状态。原生 SDK／非实时运动已有实机记录，新的实时跟随已完成离线测试，尚未在当前 Python 3.11 + SDK 0.7.1 组合下完成真机启停与连续跟随验收。
+本流程覆盖六轴关节跟随；夹爪联动和仿真显示未接入。原生 SDK／非实时运动已有实机记录，新的实时跟随已完成离线测试，尚未在当前 Python 3.11 + SDK 0.7.1 组合下完成真机启停与连续跟随验收。
 
 - [命令与快速启动](xcore-sdk-python/README.md)
 - [工程搭建、模块职责与验证边界](xcore-sdk-python/docs/DEVELOPMENT.md)
@@ -105,33 +105,6 @@ cd /home/knight/projects/xcore/xcore-controller
 
 GELLO 仿真与原来的实验脚本均可使用；CR7 仿真需先准备
 `xcore-gello-software/third_party/cr7/cr7_scene.xml` 及其模型资源，详见子项目文档。
-
-### 主臂扳机与仿真夹爪
-
-先在 GELLO 子项目读取 20 帧，观察扳机原始角度和闭合度：
-
-```bash
-cd xcore-gello-software
-.venv/bin/xcore-gello-software read --samples 20
-```
-
-读取结束后，在该目录的两个终端分别运行：
-
-```bash
-# 终端 1
-.venv/bin/xcore-gello-software launch-nodes --robot sim_cr7
-```
-
-```bash
-# 终端 2：机械臂保持当前姿态，只跟随夹爪
-.venv/bin/xcore-gello-software run-env --agent gello --gripper-only \
-  --gello-port /dev/serial/by-id/usb-FTDI_USB__-__Serial_Converter_FTB4C7PQ-if00-port0
-```
-
-默认使用 ID 7、全开 194.8°、全闭 153°；需按本机扳机实际角度确认。
-可通过 `--gripper-open-deg`、`--gripper-close-deg` 调整。
-仿真提供简化的 85 mm 平行夹爪，数据的最后一项是 0～1 闭合度。
-完整说明见 [GELLO README](xcore-gello-software/README.md)。
 
 ## 子模块维护
 
