@@ -113,6 +113,24 @@ cd /home/knight/projects/xcore/xcore-controller
   --max-speed-deg 3 --prepare-speed 50 --prepare-motion-timeout 600
 ```
 
+调节实时跟随速度时，可以直接修改本目录 `start_gello_follow.sh` 开头的
+`max_speed_deg="${XCORE_FOLLOW_MAX_SPEED_DEG:-3}"`，将末尾的 `3` 改成期望的
+每轴速度上限（单位 °/s）。也可以每次通过命令指定，例如：
+
+```bash
+./start_gello_follow.sh --enable-motion --max-speed-deg 10
+./start_gello_follow.sh --enable-motion --max-speed-deg 20
+# 环境变量方式：不修改脚本
+XCORE_FOLLOW_MAX_SPEED_DEG=10 ./start_gello_follow.sh --enable-motion
+```
+
+优先级为命令行参数 > 环境变量 > 脚本默认值。启动时会显示实际采用的限速。
+每次更换速度需要先按 Ctrl+C 结束上一次跟随，再重新启动。
+有效范围为 `0 < V <= 75°/s`；`75°/s` 是现有软件上限，不代表 CR7 的硬件
+最大速度或已经验证的实验速度。可从较低值逐步测试。
+加速度仍限制为 `40°/s²`，实际速度还取决于主臂运动、角度差和运动持续时间，
+短距离跟随不一定达到设定上限。此参数不改变启动对齐的 `--prepare-speed`。
+
 脚本持有同一把单实例锁，准备、实时跟随和记录不会重叠占用 SDK 或 GELLO。
 已手动对齐时，可用 `./start_gello_follow.sh --enable-motion --skip-prepare` 跳过准备
 移动，仍保留启动对齐闸门。`--yes` 可跳过交互确认。参数错误、超限目标、
