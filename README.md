@@ -63,18 +63,23 @@ cd /home/knight/projects/xcore/xcore-controller
 # 只读预览，核对主臂目标与从臂反馈
 ./start_gello_follow.sh
 
-# 正常启动：低速移动从臂到 GELLO 当前姿态，然后进入跟随
+# 正常启动：对齐从臂到 GELLO 当前姿态，然后六轴与夹爪同时跟随
 ./start_gello_follow.sh --enable-motion
 ```
+
+这两条命令默认启用独立夹爪，需先在夹爪 USB/RS485 所在电脑启动
+`./start_gripper.sh --serial-port <夹爪串口>`；详见下方夹爪连接流程。
+仅测试六轴时，分别使用 `./start_gello_follow.sh --arm-only` 和
+`./start_gello_follow.sh --enable-motion --arm-only`。
 
 本机已在 2026-10-08 保存 `xcore-sdk-python/config/cr7_calib.json`，可以直接使用
 最后一条命令。**启动前保持 GELLO 在期望姿态，准备对齐期间保持主臂不动。**
 输入 `y` 确认后，脚本读取主臂、应用现场零位偏移和轴方向，选择与从臂当前
-关节角最近的 2π 分支，再以 `MoveAbsJ` 低速移动到这个目标。到位并检查主臂
+关节角最近的 2π 分支，再以 `MoveAbsJ` 移动到这个目标。到位并检查主臂
 未移动后，关闭准备 SDK 会话，启动独占的实时服务和 GELLO 客户端。
 正常启动直接对齐当前目标，不要求主臂在零位，也不先回零或重新标定。
 
-准备速度默认 `50 mm/s`（SDK 速度参数），每轴角度差上限 `180°`，
+准备速度默认 `1000 mm/s`（SDK 速度参数），每轴角度差上限 `180°`，
 每段运动到位等待默认 `600 s`，到位容差 `0.2°`。实时跟随速度上限另为 `3°/s`。
 确认的是实际运动路径和范围；关节软限位不能判断周围障碍物。
 
@@ -87,7 +92,7 @@ cd /home/knight/projects/xcore/xcore-controller
 ./start_gello_follow.sh --enable-motion --calibrate-zero
 ```
 
-这条命令先低速将 CR7 六轴移动到 `0°`，核对实际到位反馈，再采集 GELLO
+这条命令先将 CR7 六轴移动到 `0°`，核对实际到位反馈，再采集 GELLO
 零位偏移并保存标定，随后进入跟随。仅首次标定走归零流程；不能把任意 GELLO
 姿态当作零位。已有标定不会被覆盖；需要重标定时指定新文件，并在后续启动中
 继续指定该文件：
@@ -110,8 +115,13 @@ cd /home/knight/projects/xcore/xcore-controller
 ./start_gello_follow.sh --enable-motion \
   --ip 192.168.2.160 --local-ip 192.168.2.100 \
   --gello-port /dev/ttyUSB0 --calib ./xcore-sdk-python/config/cr7_calib.json \
-  --max-speed-deg 3 --prepare-speed 50 --prepare-motion-timeout 600
+  --max-speed-deg 3 --prepare-speed 1000 --prepare-motion-timeout 600
 ```
+
+启动对齐速度可以修改顶层脚本的 `prepare_speed="${XCORE_PREPARE_SPEED:-1000}"`，
+或使用 `--prepare-speed 1000` 覆盖；也支持环境变量 `XCORE_PREPARE_SPEED`。
+这是 `MoveAbsJ` 的 SDK mm/s 参数，不是六个关节各自的 °/s 速度；合法范围
+为 5～4000。默认不再使用原先的 `50 mm/s` 对齐设置。
 
 调节实时跟随速度时，可以直接修改本目录 `start_gello_follow.sh` 开头的
 `max_speed_deg="${XCORE_FOLLOW_MAX_SPEED_DEG:-3}"`，将末尾的 `3` 改成期望的
@@ -144,7 +154,8 @@ XCORE_FOLLOW_MAX_SPEED_DEG=10 ./start_gello_follow.sh --enable-motion
 
 脚本实现位于 SDK 仓库的 [scripts/start_gello_follow.sh](xcore-sdk-python/scripts/start_gello_follow.sh)，本目录的同名脚本是便捷入口。仅克隆 SDK 仓库时，可直接运行 `./scripts/start_gello_follow.sh`。各操作也保留 `uv run xcore-sdk-python [指令] [参数]` 接口。
 
-本流程默认覆盖六轴关节跟随；指定 `--gripper-host` 可同时跟随独立外接夹爪，见下方。
+控制器入口默认同时跟随六轴和独立外接夹爪，默认服务地址为 `127.0.0.1:5005`。
+可用 `--gripper-host` 指定另一台电脑，或用 `--arm-only` 仅启用六轴，见下方。
 2026-10-08 已完成 CR7 六轴归零、现场标定及实时跟随实测，用户确认能正常跟随。
 新增启动对齐流程有离线覆盖；独立夹爪联动和数采仍需单独完成真机验收。
 
@@ -158,7 +169,9 @@ XCORE_FOLLOW_MAX_SPEED_DEG=10 ./start_gello_follow.sh --enable-motion
 在连接夹爪 USB/RS485 的电脑启动夹爪服务：
 
 ```bash
-./start_gripper.sh --serial-port /dev/ttyUSB0
+# 列出设备；辨认夹爪适配器，与 GELLO 适配器区分
+ls -l /dev/serial/by-id/
+./start_gripper.sh --serial-port /dev/serial/by-id/<实际夹爪适配器名称>
 ```
 
 上面的串口必须属于夹爪 RS485 适配器，与 GELLO 串口不同；优先使用实际
@@ -167,13 +180,29 @@ XCORE_FOLLOW_MAX_SPEED_DEG=10 ./start_gello_follow.sh --enable-motion
 服务就绪后，在另一终端运行统一跟随入口；同机服务使用 `127.0.0.1`，
 异机服务使用夹爪 USB 所在电脑的 IP：
 
+夹爪终端显示 `0.0.0.0:5005` 表示监听这台电脑的所有网卡，不是客户端的远程
+连接地址。服务同机时使用 `127.0.0.1`；服务异机时，在服务电脑运行
+`hostname -I` 查询客户端可达的实际 IP，并通过 `--gripper-host` 指定。
+
 ```bash
 # 只读预览：不发送机械臂或夹爪运动目标
 ./start_gello_follow.sh --gripper-host 127.0.0.1
 
-# 按已有标定自动对齐初始姿态，再六轴与夹爪同时跟随
-./start_gello_follow.sh --gripper-host 127.0.0.1 --enable-motion
+# 同机：按已有标定对齐，再六轴与夹爪同时跟随
+./start_gello_follow.sh --enable-motion
+
+# 异机：将地址换成夹爪服务电脑的实际 IP
+./start_gello_follow.sh --enable-motion --gripper-host 192.168.2.200
+
+# 暂未连接夹爪时，仅测试六轴
+./start_gello_follow.sh --enable-motion --arm-only
 ```
+
+夹爪服务必须先就绪。统一脚本在连接 CR7、打开 GELLO 和准备运动前发送只读
+`follow_status`，校验服务能力、激活状态和实际夹爪位置；失败则退出，
+不会悄悄改为仅六轴。`--arm-only` 与显式 `--gripper-host` 不能同时使用。
+也可设置脚本开头的 `gripper_host` 或环境变量 `XCORE_GRIPPER_HOST`。
+SDK 仓库的独立脚本仍按 `--gripper-host`／环境变量启用夹爪。
 
 同一客户端每帧读取 GELLO 六轴和 ID 7 扳机，再分别发送到 CR7 六轴服务和夹爪 TCP 服务。
 默认六轴 50 Hz、夹爪 5 Hz。夹爪工作线程只发送最新闭合度，不阻塞机械臂目标更新；
@@ -184,12 +213,14 @@ XCORE_FOLLOW_MAX_SPEED_DEG=10 ./start_gello_follow.sh --enable-motion
 跟随期间仅统一客户端读取 GELLO，不同时启动 `read` 或仿真跟随进程。
 Ctrl+C 停止客户端时发送夹爪停止请求，并退出 CR7 跟随；夹爪默认 1.5 s 未收到刷新
 会触发服务端停止保护。真实的响应速度和停止效果仍需实机验收。
+运行输出中的 `gripper_target` 是 GELLO 扳机映射的 0～1 闭合度，
+`gripper_feedback.position_raw` 是实际从臂夹爪反馈；两者同时显示以便核对跟随。
 完整参数与测试边界见 [SDK README](xcore-sdk-python/README.md)。
 
 ## 从臂六轴与夹爪数据记录和转换
 
 先启动上面的夹爪服务，再运行记录入口。它包含统一跟随流程，不同时启动普通
-`start_gello_follow.sh` 或其他 GELLO 读取进程；启动时按已有标定先低速对齐到
+`start_gello_follow.sh` 或其他 GELLO 读取进程；启动时按已有标定先对齐到
 主臂当前目标，再跟随和记录。记录入口也支持 `--prepare-*`、`--skip-prepare`
 和首次 `--calibrate-zero` 参数。
 
