@@ -183,8 +183,15 @@ XCORE_FOLLOW_MAX_SPEED_DEG=10 ./start_gello_follow.sh --enable-motion
 从当前电脑可检查：
 
 ```bash
-ssh rokae@192.168.2.225 'systemctl --user status xcore-gripper-follow.service --no-pager'
+./start_gripper.sh          # 通过 SSH 启动远端后台服务并检查；已有服务不会重启
+./start_gripper.sh --status # 只读检查 TCP 反馈
 ```
+
+顶层入口默认不打开本机串口。本机的 FTDI `FTB4C7PQ` 属于 GELLO，
+将它当作夹爪串口会收不到 Modbus 回复。夹爪串口 `DAAQMP8J` 在远端 `.225`。
+如提示 `Gripper target stream timed out`，先结束统一跟随，再执行
+`./start_gripper.sh --reset-stream` 发送停止指令并清除断流故障。
+需要重启服务时使用 `./start_gripper.sh --restart`，服务重启会激活夹爪。
 
 服务随 `rokae` 用户登录启动；管理与部署说明见
 [远端夹爪服务](docs/GRIPPER_SERVER_UPDATE.md)。以下手动启动方法用于其他部署，
@@ -195,11 +202,12 @@ ssh rokae@192.168.2.225 'systemctl --user status xcore-gripper-follow.service --
 ```bash
 # 列出设备；辨认夹爪适配器，与 GELLO 适配器区分
 ls -l /dev/serial/by-id/
-./start_gripper.sh --serial-port /dev/serial/by-id/<实际夹爪适配器名称>
+./start_gripper.sh --local --serial-port /dev/serial/by-id/<实际夹爪适配器名称>
 ```
 
 上面的串口必须属于夹爪 RS485 适配器，与 GELLO 串口不同；优先使用实际
-`/dev/serial/by-id/...` 路径。夹爪服务启动会激活夹爪。
+`/dev/serial/by-id/...` 路径。本机模式要求明确串口，拒绝 GELLO 串口及其别名。
+夹爪服务启动会激活夹爪。
 
 服务就绪后，在另一终端运行统一跟随入口；同机服务使用 `127.0.0.1`，
 异机服务使用夹爪 USB 所在电脑的 IP：

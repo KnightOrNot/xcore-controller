@@ -34,6 +34,20 @@
 
 ## 从控制电脑管理远端服务
 
+控制器入口默认管理远端服务，不会尝试本机 USB：
+
+```bash
+./start_gripper.sh                # 启动／检查已安装的用户服务，已有服务不会重启
+./start_gripper.sh --status       # 只读检查服务能力及实际反馈
+./start_gripper.sh --restart      # 先结束跟随，再重启（会激活夹爪）
+./start_gripper.sh --reset-stream # 先结束跟随，停止并清除断流故障
+```
+
+远端地址／用户可由 `--gripper-host`、`--ssh-user` 或环境变量
+`XCORE_GRIPPER_HOST`、`XCORE_GRIPPER_SSH_USER` 覆盖。
+只有明确 `--local --serial-port <实际夹爪串口>` 时才启动本机服务，
+该模式会拒绝当前 GELLO 串口及其指向同一设备的别名。
+
 检查服务与近期日志：
 
 ```bash
