@@ -430,8 +430,18 @@ exit
 `--arm-only` 不能与 `--gripper-host` 同用。
 默认只输出启动、错误及停止信息，需要连续状态时加 `--show-state`。
 
-**停止：按 Ctrl+C，等待客户端和服务端退出。** 脚本请求停止六轴和夹爪，
-跟随退出恢复 NRT／manual，不自动回零或下电。不要在跟随中另开 SDK 查询或控制会话。
+**结束实验：按 Ctrl+C，等待六轴回到零位后退出。** 脚本先停止跟随和夹爪，
+关闭实时／准备 SDK 会话，再将六轴移到 `[0°, 0°, 0°, 0°, 0°, 0°]`。
+回零沿用 `--prepare-speed`（默认 `4000 mm/s`）和 `--prepare-motion-timeout`
+（默认 `600 s`），完成后恢复回零前的电源状态和模式，夹爪保持停止、不自动开爪。
+开始实验前也要确认回零路径可用；回零期间再次 Ctrl+C 会请求停止回零并等待 SDK 关闭。
+只读预览和故障退出不执行回零。不要在跟随或回零期间另开 SDK 查询／控制会话。
+仅希望停止并保持当前姿态时，启动命令加 `--no-return-zero`：
+
+```bash
+./start_gello_follow.sh --enable-motion --no-return-zero
+./start_data_record.sh --task "pick up the object" --no-return-zero
+```
 紧急情况使用设备硬件急停；终端退出不能替代硬件急停。
 
 ## 8. 日常启动
@@ -451,7 +461,7 @@ export XCORE_GELLO_PORT=/dev/serial/by-id/usb-FTDI_USB__-__Serial_Converter_FTB4
 
 # 3. 主臂保持期望姿态；输入 y，等待对齐完成再移动主臂
 ./start_gello_follow.sh --enable-motion
-# 实验结束按 Ctrl+C，等待退出
+# 实验结束按 Ctrl+C，等待从臂六轴回零并退出
 ```
 
 远端地址或账户变化时，在同一终端设置
@@ -512,7 +522,8 @@ git -c url."https://github.com/".insteadOf=git@github.com: submodule update --in
 ```
 
 它先对齐再跟随；R 开始记录、S 保存、D 丢弃、P 查看状态、H 帮助。
-Ctrl+C 停止后自动转换已保存片段；原始数据在 `data/raw/`，LeRobot 数据在 `data/lerobot/`。
+Ctrl+C 后先停止跟随、完成六轴回零，再自动转换已保存片段；回零动作不写入 episode。
+未保存片段保留为 `.partial`。原始数据在 `data/raw/`，LeRobot 数据在 `data/lerobot/`。
 
 工程细节与原 README 内容见 [docs/DEVELOPMET.md](docs/DEVELOPMET.md)；
 扩展说明见 [数据记录](docs/DATA_RECORDING.md)、[现场夹爪服务管理](docs/GRIPPER_SERVER_UPDATE.md)。

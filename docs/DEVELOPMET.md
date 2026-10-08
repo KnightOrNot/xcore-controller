@@ -161,9 +161,12 @@ XCORE_FOLLOW_MAX_SPEED_DEG=10 ./start_gello_follow.sh --enable-motion
 移动，仍保留启动对齐闸门。`--yes` 可跳过交互确认。参数错误、超限目标、
 准备期间主臂移动或准备失败都会阻止实时跟随启动。
 
-按 **Ctrl+C** 停止。准备阶段会请求停止，等机器人空闲后恢复准备前的电源和模式；
-跟随阶段先停 GELLO 客户端，再关闭实时 SDK 会话，恢复 NRT／manual，
-不自动下电或归零。不要在跟随运行中再次启动脚本或另开 SDK 查询/运动命令。
+按 **Ctrl+C** 结束真机实验：先停 GELLO 客户端和夹爪，再关闭实时／准备 SDK 会话，
+随后以独占 SDK 会话将六轴回到 `[0°,0°,0°,0°,0°,0°]`。
+速度与等待时间沿用 `--prepare-speed`／`--prepare-motion-timeout`；
+回零后恢复回零前的电源和模式。再次 Ctrl+C 可停止回零。
+只读预览和故障退出不回零；`--no-return-zero` 可禁用自动回零。
+不要在跟随或回零期间另开 SDK 查询／运动命令。
 日志位于 `xcore-sdk-python/logs/follow-*/`：`preparation.json` 保存到位结果，
 `server.log` 保存实时跟随日志。
 
@@ -274,7 +277,7 @@ Ctrl+C 停止客户端时发送夹爪停止请求，并退出 CR7 跟随；夹�
 ```
 
 R 开始 episode，S 保存，D 丢弃，P 查看状态，H 查看帮助。
-Ctrl+C 先停止跟随并关闭 SDK 服务，再转换已经保存的 episode。
+Ctrl+C 先停止跟随并关闭 SDK 服务，再将六轴回零，回零会话关闭后转换已经保存的 episode。
 未保存的 episode 留为 `.jsonl.partial`，不会被当作正式训练数据转换。
 
 ```text

@@ -12,12 +12,13 @@ follow_options=()
 follow_pid=""
 session_file=""
 interrupted=false
+stop_requested=false
 
 usage() {
     cat <<'EOF'
 用法：./start_data_record.sh [选项]
 启动 CR7 六轴与外接夹爪跟随，并记录从臂实际反馈。启动前需运行夹爪服务。
-R=开始，S=保存，D=丢弃，P=状态，H=帮助；Ctrl+C 停止后转换已保存 episode。
+R=开始，S=保存，D=丢弃，P=状态，H=帮助；Ctrl+C 停止跟随、六轴回零后转换已保存 episode。
 未保存的 episode 保留为 .jsonl.partial，不自动转换。
   --raw-data-root PATH       默认 data/raw
   --lerobot-data-root PATH   默认 data/lerobot
@@ -27,6 +28,7 @@ R=开始，S=保存，D=丢弃，P=状态，H=帮助；Ctrl+C 停止后转换已
   --gripper-host HOST        默认 192.168.2.225，可用 XCORE_GRIPPER_HOST 覆盖
   --start-recording          对齐后立即开始 episode 0
   --show-state               循环打印状态；默认关闭，记录与故障检查不受影响
+  --no-return-zero           禁用 Ctrl+C 退出后的六轴回零
 其余 --ip、--local-ip、--gello-port、--calib、--hz、--prepare-*、--skip-prepare、
 --calibrate-zero、--gripper-*、--record-*、--yes
 参数传给统一跟随入口；无需另外运行 start_gello_follow.sh。
@@ -35,7 +37,16 @@ EOF
 
 on_signal() {
     interrupted=true
-    [[ -z "$follow_pid" ]] || kill -TERM -- "-$follow_pid" 2>/dev/null || true
+    if [[ -n "$follow_pid" ]]; then
+        # Bash background jobs inherit ignored SIGINT. USR1 requests the same
+        # Ctrl+C shutdown in the follow launcher, including its return to zero.
+        if [[ "$1" == INT ]]; then
+            kill -USR1 "$follow_pid" 2>/dev/null || true
+        elif [[ "$stop_requested" == false ]]; then
+            kill -TERM -- "-$follow_pid" 2>/dev/null || true
+        fi
+        stop_requested=true
+    fi
 }
 cleanup() {
     local result=$?
@@ -47,7 +58,8 @@ cleanup() {
     [[ -z "$session_file" ]] || rm -f -- "$session_file"
     exit "$result"
 }
-trap on_signal INT TERM
+trap 'on_signal INT' INT
+trap 'on_signal TERM' TERM
 trap cleanup EXIT
 
 while (( $# )); do
@@ -58,7 +70,7 @@ while (( $# )); do
         --skip-conversion) convert=false; shift ;;
         --task) task="${2:?缺少任务}"; shift 2 ;;
         --gripper-host) gripper_host="${2:?缺少夹爪地址}"; shift 2 ;;
-        --start-recording|--yes|--skip-prepare|--calibrate-zero|--show-state) follow_options+=("$1"); shift ;;
+        --start-recording|--yes|--skip-prepare|--calibrate-zero|--show-state|--no-return-zero) follow_options+=("$1"); shift ;;
         --ip|--local-ip|--gello-port|--calib|--port|--hz|--max-speed-deg|--prepare-speed|--prepare-motion-timeout|--prepare-max-step-deg|--record-queue-size|--record-feedback-max-age|--gripper-port|--gripper-id|--gripper-open-deg|--gripper-close-deg|--gripper-open-pos|--gripper-closed-pos|--gripper-hz|--gripper-speed|--gripper-force|--gripper-timeout|--gripper-stale-timeout)
             [[ $# -ge 2 ]] || { echo "$1 缺少参数" >&2; exit 2; }
             follow_options+=("$1" "$2"); shift 2 ;;
@@ -89,8 +101,8 @@ done
 set -e
 follow_pid=""
 
-# The follow launcher has now closed its SDK server. Heavy imports/conversion
-# must run only after that shutdown, including the Ctrl+C path.
+# The follow launcher has closed both the RT session and the return-zero session.
+# Conversion must wait for that shutdown, including the Ctrl+C path.
 if [[ -s "$session_file" ]]; then
     raw_session="$(<"$session_file")"
     if [[ "$convert" == true ]]; then
@@ -109,6 +121,9 @@ if [[ -s "$session_file" ]]; then
     echo "Raw session：$raw_session"
 fi
 if [[ "$interrupted" == true ]]; then
+    if (( follow_result != 0 && follow_result != 130 && follow_result != 143 )); then
+        exit "$follow_result"
+    fi
     exit 130
 fi
 exit "$follow_result"

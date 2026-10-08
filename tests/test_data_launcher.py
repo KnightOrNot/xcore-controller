@@ -35,6 +35,13 @@ def launcher(tmp_path):
         "def stopped(*_):\n"
         "    (root/'stopped').touch(); sys.exit(143)\n"
         "signal.signal(signal.SIGTERM,stopped)\n"
+        "def return_zero(*_):\n"
+        "    (root/'zero_started').touch()\n"
+        "    time.sleep(.15)\n"
+        "    (root/'zero_finished').touch()\n"
+        "    (root/'stopped').touch()\n"
+        "    sys.exit(1 if os.environ.get('FAIL_ZERO') else 130)\n"
+        "signal.signal(signal.SIGUSR1,return_zero)\n"
         "(root/'ready').touch()\n"
         "if os.environ.get('HOLD'):\n"
         "    while True: time.sleep(.02)\n"
@@ -57,6 +64,8 @@ def launcher(tmp_path):
         "if sys.argv[1] == '-c': sys.exit(0)\n"
         "assert sys.argv[1] == str(root/'tools/convert_cr7.py')\n"
         "assert (root/'stopped').exists(), 'converter ran before follower shutdown'\n"
+        "if (root/'zero_started').exists():\n"
+        "    assert (root/'zero_finished').exists(), 'converter ran before zero finished'\n"
         "(root/'conversion.json').write_text(json.dumps(sys.argv[2:]))\n"
     )
     for binary in binaries.iterdir():
@@ -85,6 +94,7 @@ def test_record_entry_routes_options_and_converts_after_shutdown(launcher):
             "50",
             "--skip-prepare",
             "--show-state",
+            "--no-return-zero",
         ],
         capture_output=True,
         text=True,
@@ -97,6 +107,7 @@ def test_record_entry_routes_options_and_converts_after_shutdown(launcher):
     assert args[args.index("--gripper-host") + 1] == "192.168.2.225"
     assert "--skip-prepare" in args
     assert "--show-state" in args
+    assert "--no-return-zero" in args
     assert args[args.index("--prepare-speed") + 1] == "50"
     assert args[args.index("--task") + 1] == "pick object"
     conversion = json.loads((launcher / "conversion.json").read_text())
@@ -117,11 +128,20 @@ def test_skip_or_no_saved_episode_never_converts(launcher, skip, empty):
     assert not (launcher / "conversion.json").exists()
 
 
-@pytest.mark.parametrize("interrupt", [signal.SIGINT, signal.SIGTERM])
-def test_interrupt_waits_for_follow_cleanup_before_conversion(launcher, interrupt):
+@pytest.mark.parametrize(
+    "interrupt,zero_failure",
+    [(signal.SIGINT, False), (signal.SIGTERM, False), (signal.SIGINT, True)],
+)
+def test_interrupt_waits_for_follow_cleanup_before_conversion(
+    launcher, interrupt, zero_failure
+):
     process = subprocess.Popen(
         ["bash", str(launcher / "start_data_record.sh")],
-        env={**os.environ, "HOLD": "1"},
+        env={
+            **os.environ,
+            "HOLD": "1",
+            **({"FAIL_ZERO": "1"} if zero_failure else {}),
+        },
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
@@ -133,9 +153,10 @@ def test_interrupt_waits_for_follow_cleanup_before_conversion(launcher, interrup
             time.sleep(0.02)
         process.send_signal(interrupt)
         stdout, stderr = process.communicate(timeout=5)
-        assert process.returncode == 130, stdout + stderr
+        assert process.returncode == (1 if zero_failure else 130), stdout + stderr
         assert (launcher / "conversion.json").exists()
         assert (launcher / "stopped").exists()
+        assert (launcher / "zero_finished").exists() is (interrupt == signal.SIGINT)
     finally:
         if process.poll() is None:
             process.kill()

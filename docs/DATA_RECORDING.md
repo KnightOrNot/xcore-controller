@@ -29,6 +29,9 @@ uv run --project lerobot-converter --extra dataset python tools/convert_cr7.py \
 布局沿用 `manifest.json` 和 `episodes/episode_*.jsonl`。
 manifest 使用 `format=xcore_cr7_gello_raw`、`robot_type=xmate_cr7`，版本为 1。
 记录支持 R 开始、S 保存、D 丢弃；中断后留下的 `.jsonl.partial` 不参与转换。
+记录入口的 Ctrl+C 先停止跟随和记录、关闭实时 SDK，会话释放后六轴回零，
+再转换已保存片段；回零过程不写入训练数据。速度沿用 `--prepare-speed`。
+可用 `--no-return-zero` 关闭回零；回零过程中再次 Ctrl+C 会请求停止回零。
 
 每帧包含时间戳、连续 sequence，以及：
 
