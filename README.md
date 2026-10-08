@@ -33,22 +33,35 @@ sudo apt install -y git curl ca-certificates openssh-client build-essential \
   libssl-dev zlib1g-dev libbz2-dev libreadline-dev libsqlite3-dev \
   libncurses-dev xz-utils tk-dev libffi-dev liblzma-dev \
   libgl1 libegl1 libglib2.0-0t64 ffmpeg
+```
 
-# 新系统安装 pyenv；已有 ~/.pyenv 时跳过此行
+安装 pyenv：
+
+```bash
 git clone https://github.com/pyenv/pyenv.git "$HOME/.pyenv"
+```
 
-# 将以下设置追加到 Bash 配置，安装时执行一次
+将 .pyenv 加入到系统中：
+
+```bash
 cat >> "$HOME/.bashrc" <<'BASHRC'
 export PYENV_ROOT="$HOME/.pyenv"
 export PATH="$PYENV_ROOT/bin:$HOME/.local/bin:$PATH"
 eval "$(pyenv init - bash)"
 BASHRC
 source "$HOME/.bashrc"
+```
 
-# 安装 uv
+安装 uv：
+
+```bash
 curl -LsSf https://astral.sh/uv/install.sh | sh
 export PATH="$HOME/.local/bin:$PATH"
+```
 
+使用 pyenv 管理环境中的 python 版本：
+
+```bash
 # 控制环境为 3.11，数据转换环境为 3.12
 pyenv install -s 3.11.16
 pyenv install -s 3.12.14
@@ -71,11 +84,19 @@ mkdir -p "$HOME/projects/xcore"
 cd "$HOME/projects/xcore"
 git clone https://github.com/KnightOrNot/xcore-controller.git
 cd xcore-controller
+```
 
+clone submodule：
+
+```bash
 # .gitmodules 使用 SSH URL；本次初始化临时转为 HTTPS
 git -c url."https://github.com/".insteadOf=git@github.com: \
   submodule update --init
+```
 
+运行脚本初始化 submodule：
+
+```bash
 ./setup.sh --skip-submodules
 ./setup.sh --check-only
 ./xcore-sdk-python/.venv/bin/xcore-sdk-python doctor
@@ -99,10 +120,10 @@ xcore-sdk-python/Release/linux/xCoreSDK_python.cpython-311-x86_64-linux-gnu.so
 它适用于本指南的 Linux x86_64、CPython 3.11。其他架构或解释器需匹配库。
 现场标定文件仍不纳入 Git，首次使用按第 6 节生成。
 
-## 3. 配置有线通信，同时保持 WiFi 联网
+## 3. 配置有线通信
 
 有线网卡只负责机器人同网段通信，WiFi 提供默认路由和 DNS。
-不要给直连机器人的有线配置设置默认网关。以下创建持久 NetworkManager 配置，安装时执行一次。
+不要给直连机器人的有线配置设置默认网关。以下创建持久 NetworkManager 配置，安装时执行一次。如果连上网线后，系统仍然能够连接上 WiFi 并且可以实现与机械臂的网线通信，则可跳过该步。
 
 ```bash
 nmcli device status
