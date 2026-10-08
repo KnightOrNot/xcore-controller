@@ -165,7 +165,10 @@ XCORE_FOLLOW_MAX_SPEED_DEG=10 ./start_gello_follow.sh --enable-motion
 随后以独占 SDK 会话将六轴回到 `[0°,0°,0°,0°,0°,0°]`。
 速度与等待时间沿用 `--prepare-speed`／`--prepare-motion-timeout`；
 回零后恢复回零前的电源和模式。再次 Ctrl+C 可停止回零。
-只读预览和故障退出不回零；`--no-return-zero` 可禁用自动回零。
+故障退出也默认显示原始异常、服务端错误和控制器最近错误／警告，关闭记录与 SDK 后
+尝试一次实时故障恢复和回零；完成后下电、切手动，不重启跟随，保留非零退出码。
+恢复或回零失败即停止；急停／安全门不自动复位，碰撞检测和软限位保持启用。
+只读预览、SIGTERM 或强制清理不回零；`--no-return-zero` 可禁用自动回零。
 不要在跟随或回零期间另开 SDK 查询／运动命令。
 日志位于 `xcore-sdk-python/logs/follow-*/`：`preparation.json` 保存到位结果，
 `server.log` 保存实时跟随日志。

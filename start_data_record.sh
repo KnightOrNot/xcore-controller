@@ -28,7 +28,7 @@ R=开始，S=保存，D=丢弃，P=状态，H=帮助；Ctrl+C 停止跟随、六
   --gripper-host HOST        默认 192.168.2.225，可用 XCORE_GRIPPER_HOST 覆盖
   --start-recording          对齐后立即开始 episode 0
   --show-state               循环打印状态；默认关闭，记录与故障检查不受影响
-  --no-return-zero           禁用 Ctrl+C 退出后的六轴回零
+  --no-return-zero           禁用 Ctrl+C／故障退出后的六轴回零
 其余 --ip、--local-ip、--gello-port、--calib、--hz、--prepare-*、--skip-prepare、
 --calibrate-zero、--gripper-*、--record-*、--yes
 参数传给统一跟随入口；无需另外运行 start_gello_follow.sh。

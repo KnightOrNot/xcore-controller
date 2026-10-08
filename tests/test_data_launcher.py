@@ -45,6 +45,12 @@ def launcher(tmp_path):
         "(root/'ready').touch()\n"
         "if os.environ.get('HOLD'):\n"
         "    while True: time.sleep(.02)\n"
+        "if os.environ.get('FAULT'):\n"
+        "    (root/'zero_started').touch()\n"
+        "    time.sleep(.15)\n"
+        "    (root/'zero_finished').touch()\n"
+        "    (root/'stopped').touch()\n"
+        "    sys.exit(3)\n"
         "(root/'stopped').touch()\n"
     )
     follow.write_text(
@@ -77,6 +83,21 @@ def shlex_quote(value):
     import shlex
 
     return shlex.quote(value)
+
+
+def test_fault_waits_for_zero_then_converts_only_saved_data_and_keeps_failure(launcher):
+    result = subprocess.run(
+        ["bash", str(launcher / "start_data_record.sh")],
+        env={**os.environ, "FAULT": "1"},
+        capture_output=True,
+        check=False,
+        timeout=5,
+    )
+    assert result.returncode == 3
+    assert (launcher / "zero_finished").exists()
+    assert (launcher / "conversion.json").exists()
+    partial = launcher / "raw session/episodes/episode_000001.jsonl.partial"
+    assert partial.read_bytes() == b"{}\n"
 
 
 def test_record_entry_routes_options_and_converts_after_shutdown(launcher):
