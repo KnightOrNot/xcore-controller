@@ -84,6 +84,7 @@ def test_record_entry_routes_options_and_converts_after_shutdown(launcher):
             "--prepare-speed",
             "50",
             "--skip-prepare",
+            "--show-state",
         ],
         capture_output=True,
         text=True,
@@ -95,6 +96,7 @@ def test_record_entry_routes_options_and_converts_after_shutdown(launcher):
     assert "--enable-motion" in args
     assert args[args.index("--gripper-host") + 1] == "192.168.2.225"
     assert "--skip-prepare" in args
+    assert "--show-state" in args
     assert args[args.index("--prepare-speed") + 1] == "50"
     assert args[args.index("--task") + 1] == "pick object"
     conversion = json.loads((launcher / "conversion.json").read_text())

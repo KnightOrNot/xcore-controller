@@ -79,8 +79,8 @@ cd /home/knight/projects/xcore/xcore-controller
 未移动后，关闭准备 SDK 会话，启动独占的实时服务和 GELLO 客户端。
 正常启动直接对齐当前目标，不要求主臂在零位，也不先回零或重新标定。
 
-准备速度默认 `1000 mm/s`（SDK 速度参数），每轴角度差上限 `180°`，
-每段运动到位等待默认 `600 s`，到位容差 `0.2°`。实时跟随速度上限另为 `3°/s`。
+准备速度默认 `4000 mm/s`（SDK 参数上限），每轴角度差上限 `180°`，
+每段运动到位等待默认 `600 s`，到位容差 `0.2°`。实时跟随默认上限为 `75°/s`。
 确认的是实际运动路径和范围；关节软限位不能判断周围障碍物。
 
 ### 新电脑或首次零位标定
@@ -115,16 +115,16 @@ cd /home/knight/projects/xcore/xcore-controller
 ./start_gello_follow.sh --enable-motion \
   --ip 192.168.2.160 --local-ip 192.168.2.100 \
   --gello-port /dev/ttyUSB0 --calib ./xcore-sdk-python/config/cr7_calib.json \
-  --max-speed-deg 3 --prepare-speed 1000 --prepare-motion-timeout 600
+  --max-speed-deg 75 --prepare-speed 4000 --prepare-motion-timeout 600
 ```
 
-启动对齐速度可以修改顶层脚本的 `prepare_speed="${XCORE_PREPARE_SPEED:-1000}"`，
-或使用 `--prepare-speed 1000` 覆盖；也支持环境变量 `XCORE_PREPARE_SPEED`。
+启动对齐速度可以修改顶层脚本的 `prepare_speed="${XCORE_PREPARE_SPEED:-4000}"`，
+或使用 `--prepare-speed` 覆盖；也支持环境变量 `XCORE_PREPARE_SPEED`。
 这是 `MoveAbsJ` 的 SDK mm/s 参数，不是六个关节各自的 °/s 速度；合法范围
-为 5～4000。默认不再使用原先的 `50 mm/s` 对齐设置。
+为 5～4000，默认采用参数上限。
 
 调节实时跟随速度时，可以直接修改本目录 `start_gello_follow.sh` 开头的
-`max_speed_deg="${XCORE_FOLLOW_MAX_SPEED_DEG:-3}"`，将末尾的 `3` 改成期望的
+`max_speed_deg="${XCORE_FOLLOW_MAX_SPEED_DEG:-75}"`，将末尾的 `75` 改成期望的
 每轴速度上限（单位 °/s）。也可以每次通过命令指定，例如：
 
 ```bash
@@ -140,6 +140,18 @@ XCORE_FOLLOW_MAX_SPEED_DEG=10 ./start_gello_follow.sh --enable-motion
 最大速度或已经验证的实验速度。可从较低值逐步测试。
 加速度仍限制为 `40°/s²`，实际速度还取决于主臂运动、角度差和运动持续时间，
 短距离跟随不一定达到设定上限。此参数不改变启动对齐的 `--prepare-speed`。
+
+跟随默认只输出启动信息、错误和停止提示，不循环打印关节／夹爪状态，
+也不为终端显示额外查询每帧反馈。需要查看连续状态时显式启用：
+
+```bash
+./start_gello_follow.sh --enable-motion --show-state
+# 只读预览时查看连续数据
+./start_gello_follow.sh --show-state
+```
+
+`start_data_record.sh` 同样默认不循环打印；记录反馈、R/S/D/P/H 按键及
+故障检查仍正常工作，也支持 `--show-state`。
 
 脚本持有同一把单实例锁，准备、实时跟随和记录不会重叠占用 SDK 或 GELLO。
 已手动对齐时，可用 `./start_gello_follow.sh --enable-motion --skip-prepare` 跳过准备
@@ -232,7 +244,7 @@ SDK 仓库的独立脚本仍按 `--gripper-host`／环境变量启用夹爪。
 Ctrl+C 停止客户端时发送夹爪停止请求，并退出 CR7 跟随；夹爪默认 1.5 s 未收到刷新
 会触发服务端停止保护。已完成真实位置保持目标及停止指令通信验证，
 全行程开合与实际响应速度仍需跟随实验验收。
-运行输出中的 `gripper_target` 是 GELLO 扳机映射的 0～1 闭合度，
+启用 `--show-state` 后，输出中的 `gripper_target` 是 GELLO 扳机映射的 0～1 闭合度，
 `gripper_feedback.position_raw` 是实际从臂夹爪反馈；两者同时显示以便核对跟随。
 完整参数与测试边界见 [SDK README](xcore-sdk-python/README.md)。
 

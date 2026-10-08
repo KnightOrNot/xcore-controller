@@ -60,7 +60,8 @@ cd /home/knight/projects/xcore/xcore-controller
 ```
 
 检查输出应有 `ok: true`、`streaming: true`、`stream_error: null` 和实际
-`position_raw`。默认脚本预览应显示六轴主／从臂角度及 `gripper_target`。
+`position_raw`。默认脚本预览输出启动偏差与夹爪连接状态；
+需要查看连续关节角和 `gripper_target` 时使用 `./start_gello_follow.sh --show-state`。
 这些只读检查不发送运动目标。
 
 再保持 GELLO 在期望姿态，启动统一跟随：
@@ -71,8 +72,9 @@ cd /home/knight/projects/xcore/xcore-controller
 ./start_gello_follow.sh --enable-motion --max-speed-deg 10
 ```
 
-脚本默认使用 `.225:5005`、启动对齐 SDK 速度 `1000 mm/s`，
-实时跟随速度独立由 `--max-speed-deg` 指定。输入 `y` 后先对齐六轴，
+脚本默认使用 `.225:5005`、启动对齐 SDK 速度 `4000 mm/s`，
+实时跟随速度上限默认 `75°/s`，可独立由 `--max-speed-deg` 指定。
+默认不循环打印状态。输入 `y` 后先对齐六轴，
 随后从同一个 GELLO 读取进程发送六轴目标和独立夹爪目标。Ctrl+C 结束跟随。
 
 ## 验证范围
