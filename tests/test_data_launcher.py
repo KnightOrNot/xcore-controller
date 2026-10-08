@@ -81,6 +81,9 @@ def test_record_entry_routes_options_and_converts_after_shutdown(launcher):
             "30",
             "--dataset-fps",
             "25",
+            "--prepare-speed",
+            "50",
+            "--skip-prepare",
         ],
         capture_output=True,
         text=True,
@@ -90,6 +93,8 @@ def test_record_entry_routes_options_and_converts_after_shutdown(launcher):
     assert result.returncode == 0, result.stdout + result.stderr
     args = json.loads((launcher / "args.json").read_text())
     assert "--enable-motion" in args
+    assert "--skip-prepare" in args
+    assert args[args.index("--prepare-speed") + 1] == "50"
     assert args[args.index("--task") + 1] == "pick object"
     conversion = json.loads((launcher / "conversion.json").read_text())
     assert conversion[-2:] == ["--fps", "25"]

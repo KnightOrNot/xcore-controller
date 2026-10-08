@@ -49,28 +49,60 @@ uv run xcore-sdk-python status --ip 192.168.2.160
 
 本机需要匹配 CPython 3.11 的厂商二进制。电脑有线网卡须已配置 `192.168.2.100/24`；换电脑时按实际地址修改配置。完整安装与网络说明见 [SDK 快速启动](xcore-sdk-python/README.md)。
 
-将 GELLO 与 CR7 摆到相同关节姿态并保持不动，生成本机标定文件（只采样，不发运动目标）：
+## 只用 sh 命令启动跟随
 
-```bash
-uv run xcore-sdk-python follow-calibrate --ref-current \
-  --serial /dev/serial/by-id/usb-FTDI_USB__-__Serial_Converter_FTB4C7PQ-if00-port0 \
-  --save config/cr7_calib.json
-```
-
-单姿态标定只求零位偏移；方向需通过 `--signs` 指定并逐轴预览核对。串口路径按实际设备修改，已有标定文件不会被覆盖。
-
-## 一个脚本启动跟随
-
-回到控制器目录：
+在控制器目录运行。电脑通过 WiFi 联网，有线网卡使用 `192.168.2.100/24`
+直连 CR7 的 `192.168.2.160`，有线连接不设置默认网关或 DNS。
 
 ```bash
 cd /home/knight/projects/xcore/xcore-controller
-# 只读预览：显示主臂目标和 CR7 反馈，不发送运动目标
+# 首次安装环境；已有环境可只检查
+./setup.sh
+./setup.sh --check-only
+
+# 只读预览，核对主臂目标与从臂反馈
 ./start_gello_follow.sh
 
-# 核对映射与初始姿态后，启用实际跟随；启动时有交互确认
+# 正常启动：低速移动从臂到 GELLO 当前姿态，然后进入跟随
 ./start_gello_follow.sh --enable-motion
 ```
+
+本机已在 2026-10-08 保存 `xcore-sdk-python/config/cr7_calib.json`，可以直接使用
+最后一条命令。**启动前保持 GELLO 在期望姿态，准备对齐期间保持主臂不动。**
+输入 `y` 确认后，脚本读取主臂、应用现场零位偏移和轴方向，选择与从臂当前
+关节角最近的 2π 分支，再以 `MoveAbsJ` 低速移动到这个目标。到位并检查主臂
+未移动后，关闭准备 SDK 会话，启动独占的实时服务和 GELLO 客户端。
+正常启动直接对齐当前目标，不要求主臂在零位，也不先回零或重新标定。
+
+准备速度默认 `50 mm/s`（SDK 速度参数），每轴角度差上限 `180°`，
+每段运动到位等待默认 `600 s`，到位容差 `0.2°`。实时跟随速度上限另为 `3°/s`。
+确认的是实际运动路径和范围；关节软限位不能判断周围障碍物。
+
+### 新电脑或首次零位标定
+
+现场标定文件不纳入 Git。缺少标定时，将 **GELLO 六轴摆到对应 CR7 六轴均为
+0° 的标准零位**，保持不动，再执行：
+
+```bash
+./start_gello_follow.sh --enable-motion --calibrate-zero
+```
+
+这条命令先低速将 CR7 六轴移动到 `0°`，核对实际到位反馈，再采集 GELLO
+零位偏移并保存标定，随后进入跟随。仅首次标定走归零流程；不能把任意 GELLO
+姿态当作零位。已有标定不会被覆盖；需要重标定时指定新文件，并在后续启动中
+继续指定该文件：
+
+```bash
+./start_gello_follow.sh --enable-motion --calibrate-zero \
+  --calib ./xcore-sdk-python/config/cr7_calib_new.json
+./start_gello_follow.sh --enable-motion \
+  --calib ./xcore-sdk-python/config/cr7_calib_new.json
+```
+
+单姿态标定只确定零位偏移，首次默认沿用本机六轴方向 `[1,1,1,1,1,1]`。
+轴方向需按现场逐轴核对；不同装配请使用 SDK 的同姿态标定命令指定 `--signs`。
+
+### 启动参数与停止
 
 可通过参数覆盖现场配置：
 
@@ -78,15 +110,25 @@ cd /home/knight/projects/xcore/xcore-controller
 ./start_gello_follow.sh --enable-motion \
   --ip 192.168.2.160 --local-ip 192.168.2.100 \
   --gello-port /dev/ttyUSB0 --calib ./xcore-sdk-python/config/cr7_calib.json \
-  --max-speed-deg 3
+  --max-speed-deg 3 --prepare-speed 50 --prepare-motion-timeout 600
 ```
 
-脚本检查依赖、标定与串口，持有单实例锁，启动独占 SDK 会话的服务端，等待就绪后启动主臂客户端。按 Ctrl+C 时先停客户端，再停止服务端并执行 RT 退出流程；日志保存在 `xcore-sdk-python/logs/follow-*/server.log`。启动不会自动移动到主臂姿态，初始误差超过对齐阈值时拒绝跟随。
+脚本持有同一把单实例锁，准备、实时跟随和记录不会重叠占用 SDK 或 GELLO。
+已手动对齐时，可用 `./start_gello_follow.sh --enable-motion --skip-prepare` 跳过准备
+移动，仍保留启动对齐闸门。`--yes` 可跳过交互确认。参数错误、超限目标、
+准备期间主臂移动或准备失败都会阻止实时跟随启动。
+
+按 **Ctrl+C** 停止。准备阶段会请求停止，等机器人空闲后恢复准备前的电源和模式；
+跟随阶段先停 GELLO 客户端，再关闭实时 SDK 会话，恢复 NRT／manual，
+不自动下电或归零。不要在跟随运行中再次启动脚本或另开 SDK 查询/运动命令。
+日志位于 `xcore-sdk-python/logs/follow-*/`：`preparation.json` 保存到位结果，
+`server.log` 保存实时跟随日志。
 
 脚本实现位于 SDK 仓库的 [scripts/start_gello_follow.sh](xcore-sdk-python/scripts/start_gello_follow.sh)，本目录的同名脚本是便捷入口。仅克隆 SDK 仓库时，可直接运行 `./scripts/start_gello_follow.sh`。各操作也保留 `uv run xcore-sdk-python [指令] [参数]` 接口。
 
 本流程默认覆盖六轴关节跟随；指定 `--gripper-host` 可同时跟随独立外接夹爪，见下方。
-原生 SDK／非实时运动已有实机记录；实时跟随及夹爪联动已完成离线测试，尚未完成真机启停与连续跟随验收。
+2026-10-08 已完成 CR7 六轴归零、现场标定及实时跟随实测，用户确认能正常跟随。
+新增启动对齐流程有离线覆盖；独立夹爪联动和数采仍需单独完成真机验收。
 
 - [命令与快速启动](xcore-sdk-python/README.md)
 - [工程搭建、模块职责与验证边界](xcore-sdk-python/docs/DEVELOPMENT.md)
@@ -111,7 +153,7 @@ cd /home/knight/projects/xcore/xcore-controller
 # 只读预览：不发送机械臂或夹爪运动目标
 ./start_gello_follow.sh --gripper-host 127.0.0.1
 
-# 对齐初始姿态、核对标定后，六轴与夹爪同时跟随
+# 按已有标定自动对齐初始姿态，再六轴与夹爪同时跟随
 ./start_gello_follow.sh --gripper-host 127.0.0.1 --enable-motion
 ```
 
@@ -129,7 +171,9 @@ Ctrl+C 停止客户端时发送夹爪停止请求，并退出 CR7 跟随；夹�
 ## 从臂六轴与夹爪数据记录和转换
 
 先启动上面的夹爪服务，再运行记录入口。它包含统一跟随流程，不同时启动普通
-`start_gello_follow.sh` 或其他 GELLO 读取进程；启动时仍要求现场标定和姿态对齐。
+`start_gello_follow.sh` 或其他 GELLO 读取进程；启动时按已有标定先低速对齐到
+主臂当前目标，再跟随和记录。记录入口也支持 `--prepare-*`、`--skip-prepare`
+和首次 `--calibrate-zero` 参数。
 
 ```bash
 ./start_data_record.sh --task "pick up the object"
