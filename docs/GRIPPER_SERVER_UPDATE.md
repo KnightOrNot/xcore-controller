@@ -1,63 +1,85 @@
-# 远端夹爪服务升级
+# 远端夹爪服务部署与管理
 
-当前夹爪服务系统的有线地址为 `192.168.2.225`，CR7 为 `192.168.2.160`。
+夹爪服务系统的有线地址为 `192.168.2.225`，CR7 为 `192.168.2.160`。
 服务显示 `0.0.0.0:5005` 表示监听该系统的所有网卡；客户端连接 `.225:5005`。
+六轴与夹爪分别控制，统一客户端只读取一次 GELLO。
 
-2026-10-08 的只读检测已确认远端 TCP 服务可达、夹爪已激活，实际
-`position_raw=3`。远端仅支持 `activate/status/open/close/move`，缺少连续目标
-更新、反馈能力检查和停止指令，因此不能用于当前统一跟随。
-以下升级尚需在服务系统本机执行；本次检测发现 SSH 22 端口拒绝连接。
+## 当前现场部署
 
-## 在夹爪服务系统上执行
+2026-10-08 已通过 `rokae@192.168.2.225` SSH 完成升级。旧服务仅支持
+`activate/status/open/close/move`；新版支持 `follow_status/set_target/stop`，
+可以在夹爪运动过程中更新目标，并在目标断流时停止。
 
-先在旧夹爪服务终端按 Ctrl+C，释放串口和 5005 端口。不要同时运行两个服务。
-新版在启动时会激活夹爪。
+本次通过 SSH 传输已发布源码，未使用远端外网或安装新 Python 依赖。
+新版在远端原 Conda Python 环境下通过 35 项模拟测试。
 
-可在新的目录独立部署，避免改动原项目。使用运行旧服务的 Python 环境
-（已安装 pyserial），执行：
+| 配置 | 当前值 |
+| --- | --- |
+| 系统 | Ubuntu 22.04.5，用户 `rokae` |
+| Python | `/home/rokae/miniconda3/bin/python3.13`，pyserial 3.5 |
+| 夹爪串口 | `/dev/serial/by-id/usb-FTDI_USB_TO_RS-485_DAAQMP8J-if00-port0` |
+| 源码提交 | `d250051d8a6e1cf4f77bca3383c9a899be4ad04a` |
+| 部署根目录 | `/home/rokae/xcore-gripper-follow` |
+| 当前源码链接 | `/home/rokae/xcore-gripper-follow/current` |
+| 部署清单 | `/home/rokae/xcore-gripper-follow/deployment.json` |
+| 用户服务 | `xcore-gripper-follow.service` |
+
+源码归档解包到 `releases/<提交 SHA>`；该目录不是 Git 工作树，不在部署根目录
+执行 `git pull`。后续升级应传输新发布版本，验证后切换服务的源码路径。
+原 `/home/rokae/rokae/2F85demo` 文件保持原样，旧服务进程已停止。
+
+服务已设置为随 `rokae` 用户登录启动，由用户级 systemd 在后台管理，
+无需保持夹爪启动终端打开。当前 `Linger=no`，未配置用户尚未登录时自动运行。
+服务启动／重启会激活夹爪；不要在跟随过程中重启，也不要同时启动旧服务。
+
+## 从控制电脑管理远端服务
+
+检查服务与近期日志：
 
 ```bash
-git clone --branch main https://github.com/KnightOrNot/xcore-gripper-2F85.git \
-  "$HOME/xcore-gripper-follow"
-cd "$HOME/xcore-gripper-follow"
-
-# 确认 pyserial 可导入；若不可导入，先切换到原服务的 Python 环境
-python3 -c 'import serial; print(serial.__version__)'
-# 读取适配器列表；沿用旧服务实际使用的夹爪串口
-python3 -m serial.tools.list_ports -v
+ssh rokae@192.168.2.225 'systemctl --user status xcore-gripper-follow.service --no-pager'
+ssh rokae@192.168.2.225 'journalctl --user -u xcore-gripper-follow.service -n 50 --no-pager'
 ```
 
-确认新目录的 `git log -1 --oneline` 包含 `d250051` 或后续提交。
-将以下 `/dev/ttyUSB0` 替换为刚确认的实际夹爪串口（推荐 by-id 路径），
-直接从源码启动新版，避免调用 PATH 中残留的旧服务：
+需要启动、停止或重启时，先结束当前跟随，再使用对应命令：
 
 ```bash
-PYTHONPATH=src python3 -m xcore_gripper_2f85.gripper_server \
-  --host 0.0.0.0 --port 5005 --serial-port /dev/ttyUSB0
+ssh rokae@192.168.2.225 'systemctl --user start xcore-gripper-follow.service'
+ssh rokae@192.168.2.225 'systemctl --user stop xcore-gripper-follow.service'
+ssh rokae@192.168.2.225 'systemctl --user restart xcore-gripper-follow.service'
 ```
-
-保持该终端运行。若新部署目录已经存在，请在该目录检查 `git status`，
-没有本地改动时使用 `git pull --ff-only` 更新，无需再次克隆。
 
 ## 在控制电脑上验证并跟随
 
-先只读检查新版服务：
+先只读检查服务：
 
 ```bash
 cd /home/knight/projects/xcore/xcore-controller
-./xcore-sdk-python/.venv/bin/xcore-sdk-python gripper-check \
-  --gripper-host 192.168.2.225
+./xcore-sdk-python/.venv/bin/xcore-sdk-python gripper-check --gripper-host 192.168.2.225
+./start_gello_follow.sh
 ```
 
-成功输出应有 `ok: true`、`streaming: true` 和实际 `position_raw`。
-此检查不发送运动命令、不连接 CR7，也不打开 GELLO 串口。
+检查输出应有 `ok: true`、`streaming: true`、`stream_error: null` 和实际
+`position_raw`。默认脚本预览应显示六轴主／从臂角度及 `gripper_target`。
+这些只读检查不发送运动目标。
 
 再保持 GELLO 在期望姿态，启动统一跟随：
 
 ```bash
 ./start_gello_follow.sh --enable-motion
+# 单独设置实时关节限速
+./start_gello_follow.sh --enable-motion --max-speed-deg 10
 ```
 
-脚本默认使用 `.225:5005`、对齐 SDK 速度 `1000 mm/s`，
-实时跟随速度独立由 `--max-speed-deg` 指定。确认后先对齐，随后从同一个
-GELLO 读取进程发送六轴目标和独立夹爪目标。Ctrl+C 结束跟随。
+脚本默认使用 `.225:5005`、启动对齐 SDK 速度 `1000 mm/s`，
+实时跟随速度独立由 `--max-speed-deg` 指定。输入 `y` 后先对齐六轴，
+随后从同一个 GELLO 读取进程发送六轴目标和独立夹爪目标。Ctrl+C 结束跟随。
+
+## 验证范围
+
+已验证远端服务升级、真实激活与位置反馈、实际 `set_target` 当前位置保持及
+`stop` 通信，控制器只读预览同时读取 GELLO 六轴和 ID7 扳机。
+当前位置保持测试未改变开合目标，未发送 CR7 运动命令。
+夹爪全行程随扳机开合及更快启动对齐仍需实际跟随实验验收。
+本机日志保存于 `logs/gripper-follow-preview-20261008.log` 和
+`logs/gripper-stream-hold-20261008.json`，不纳入 Git。

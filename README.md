@@ -166,6 +166,18 @@ XCORE_FOLLOW_MAX_SPEED_DEG=10 ./start_gello_follow.sh --enable-motion
 
 ## 夹爪服务与 GELLO 仿真
 
+本机现场的远端 `192.168.2.225` 已于 2026-10-08 升级，夹爪服务由
+`rokae` 用户级 systemd 在后台管理，正常使用无需再次手动启动。
+从当前电脑可检查：
+
+```bash
+ssh rokae@192.168.2.225 'systemctl --user status xcore-gripper-follow.service --no-pager'
+```
+
+服务随 `rokae` 用户登录启动；管理与部署说明见
+[远端夹爪服务](docs/GRIPPER_SERVER_UPDATE.md)。以下手动启动方法用于其他部署，
+不要与当前后台服务同时占用串口或 5005 端口。
+
 在连接夹爪 USB/RS485 的电脑启动夹爪服务：
 
 ```bash
@@ -208,7 +220,7 @@ SDK 仓库的独立脚本仍按 `--gripper-host`／环境变量启用夹爪。
 后者还拥有 WiFi 地址 `10.194.89.200`，当前通过有线地址通信。
 若预检查提示只支持 `activate/status/open/close/move`，表示远端仍运行旧服务，
 需要升级到支持 `follow_status/set_target/stop` 的版本；仅修改客户端地址不能
-启用连续跟随。远端升级步骤见 [夹爪服务升级](docs/GRIPPER_SERVER_UPDATE.md)。
+启用连续跟随。远端服务管理见 [夹爪服务部署](docs/GRIPPER_SERVER_UPDATE.md)。
 
 同一客户端每帧读取 GELLO 六轴和 ID 7 扳机，再分别发送到 CR7 六轴服务和夹爪 TCP 服务。
 默认六轴 50 Hz、夹爪 5 Hz。夹爪工作线程只发送最新闭合度，不阻塞机械臂目标更新；
@@ -218,14 +230,15 @@ SDK 仓库的独立脚本仍按 `--gripper-host`／环境变量启用夹爪。
 
 跟随期间仅统一客户端读取 GELLO，不同时启动 `read` 或仿真跟随进程。
 Ctrl+C 停止客户端时发送夹爪停止请求，并退出 CR7 跟随；夹爪默认 1.5 s 未收到刷新
-会触发服务端停止保护。真实的响应速度和停止效果仍需实机验收。
+会触发服务端停止保护。已完成真实位置保持目标及停止指令通信验证，
+全行程开合与实际响应速度仍需跟随实验验收。
 运行输出中的 `gripper_target` 是 GELLO 扳机映射的 0～1 闭合度，
 `gripper_feedback.position_raw` 是实际从臂夹爪反馈；两者同时显示以便核对跟随。
 完整参数与测试边界见 [SDK README](xcore-sdk-python/README.md)。
 
 ## 从臂六轴与夹爪数据记录和转换
 
-先启动上面的夹爪服务，再运行记录入口。它包含统一跟随流程，不同时启动普通
+确保远端夹爪服务运行，再启动记录入口。它包含统一跟随流程，不同时启动普通
 `start_gello_follow.sh` 或其他 GELLO 读取进程；启动时按已有标定先对齐到
 主臂当前目标，再跟随和记录。记录入口也支持 `--prepare-*`、`--skip-prepare`
 和首次 `--calibrate-zero` 参数。
