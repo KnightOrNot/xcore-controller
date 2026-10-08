@@ -1,338 +1,497 @@
-# xcore-controller：xMate CR7 与 GELLO 跟随
+# xcore-controller：GELLO → CR7 六轴与夹爪跟随
 
-当前使用 Python SDK 控制六轴 CR7，独立控制 Robotiq 夹爪，并提供统一跟随、数据记录和 LeRobot 转换入口。顶层仓库组合四个独立子模块，各自维护 Python 环境；工程组织参考 agilex-controller。
+本指南从 **Ubuntu 24.04、x86_64 的空白控制电脑**开始，完成安装、通信、标定和真机跟随。
+统一客户端读取一次 GELLO，将六轴目标发给 CR7，将扳机目标发给独立 Robotiq 2F-85 服务。
+CR7 保持六轴接口。首次完成以下步骤后，每次实验使用文末的[日常启动命令](#8-日常启动)。
 
-## 项目结构与初始化
+## 1. 接线与地址
+
+| 设备 | 连接方式 | 本指南使用的配置 |
+| --- | --- | --- |
+| 控制电脑 | WiFi 联网；有线连接机器人网络 | 有线 `192.168.2.100/24` |
+| GELLO 主臂 | USB 接控制电脑 | 六轴 ID 1～6，夹爪扳机 ID 7，57600 baud |
+| CR7 从臂 | 以太网接机器人网络 | `192.168.2.160`，控制器版本 ≥ 3.2.1 |
+| 夹爪服务电脑 | 与控制电脑有线互通 | `192.168.2.225`，SSH 用户 `rokae`，TCP 5005 |
+| Robotiq 夹爪 | USB/RS485 接夹爪服务电脑；夹爪另接电源 | 串口与 GELLO 的串口不同 |
+
+控制电脑需要同时能访问 `.160` 和 `.225`，例如通过同一交换机连接。
+表中的 IP、用户名和串口是当前现场配置；换设备时按实际值修改。
+本文命令默认在**控制电脑的 `xcore-controller` 根目录**执行；远端步骤会单独标明。
+
+启动对齐会移动从臂。开始前确认机械臂空闲、软限位已开启、示教器无报警且允许 SDK 控制，
+确认到目标姿态的运动范围可用；对齐期间保持 GELLO 不动。夹爪服务启动会激活夹爪。
+
+## 2. 安装系统依赖、Python 和项目
+
+### 2.1 安装工具
+
+先让控制电脑通过 WiFi 正常联网，在 Bash 终端执行：
+
+```bash
+sudo apt update
+sudo apt install -y git curl ca-certificates openssh-client build-essential \
+  libssl-dev zlib1g-dev libbz2-dev libreadline-dev libsqlite3-dev \
+  libncurses-dev xz-utils tk-dev libffi-dev liblzma-dev \
+  libgl1 libegl1 libglib2.0-0t64 ffmpeg
+
+# 新系统安装 pyenv；已有 ~/.pyenv 时跳过此行
+git clone https://github.com/pyenv/pyenv.git "$HOME/.pyenv"
+
+# 将以下设置追加到 Bash 配置，安装时执行一次
+cat >> "$HOME/.bashrc" <<'BASHRC'
+export PYENV_ROOT="$HOME/.pyenv"
+export PATH="$PYENV_ROOT/bin:$HOME/.local/bin:$PATH"
+eval "$(pyenv init - bash)"
+BASHRC
+source "$HOME/.bashrc"
+
+# 安装 uv
+curl -LsSf https://astral.sh/uv/install.sh | sh
+export PATH="$HOME/.local/bin:$PATH"
+
+# 控制环境为 3.11，数据转换环境为 3.12
+pyenv install -s 3.11.16
+pyenv install -s 3.12.14
+pyenv global 3.11.16
+python --version
+uv --version
+```
+
+安装方式参考 [pyenv 官方说明](https://github.com/pyenv/pyenv#installation)、
+[Python 构建依赖](https://github.com/pyenv/pyenv/wiki#suggested-build-environment)和
+[uv 官方说明](https://docs.astral.sh/uv/getting-started/installation/)。
+Ubuntu 自带的 Python 3.12 不用于 CR7 控制；SDK 扩展要求 CPython 3.11。
+
+### 2.2 克隆与初始化
+
+以下使用 HTTPS，无需先配置 GitHub SSH 密钥。已有 clone 时进入现有目录，从子模块初始化开始。
+
+```bash
+mkdir -p "$HOME/projects/xcore"
+cd "$HOME/projects/xcore"
+git clone https://github.com/KnightOrNot/xcore-controller.git
+cd xcore-controller
+
+# .gitmodules 使用 SSH URL；本次初始化临时转为 HTTPS
+git -c url."https://github.com/".insteadOf=git@github.com: \
+  submodule update --init
+
+./setup.sh --skip-submodules
+./setup.sh --check-only
+./xcore-sdk-python/.venv/bin/xcore-sdk-python doctor
+```
+
+如仓库需要访问权限，使用有权限的 GitHub 凭据；已配置 GitHub SSH 的用户也可直接运行
+`./setup.sh`，让脚本初始化子模块。跟随使用 PyPI 的 `dynamixel-sdk`，
+无需额外安装 `third_party/DynamixelSDK/python`，也无需初始化仿真模型的嵌套子模块。
+
+`setup.sh` 安装四个独立环境，包括数据转换依赖，不连接硬件。
+最后应显示“四个子项目的环境与命令入口检查通过”；`doctor` 应返回 `ok: true`、
+`sdk_version: 0.7.1`、`hardware_connected: false`。这里的 `false` 表示离线检查未连接机械臂。
+后续使用顶层 `.sh`，**不需要手动激活 `.venv`**。
+
+**SDK 二进制已随子模块提供，无需下载或复制**，路径为：
 
 ```text
-xcore-controller/
-├── xcore-sdk-python/       # submodule：CR7 SDK、ZMQ 服务与六轴跟随
-├── xcore-gello-software/   # submodule：GELLO 主臂读取与仿真
-├── xcore-gripper-2F85/     # submodule：Robotiq 2F-85 TCP 服务与客户端
-├── lerobot-converter/      # submodule：原有 PiPER-X 转换器，保持原样
-├── tools/convert_cr7.py    # 控制器侧 CR7 适配，复用转换器的数据集写入
-├── setup.sh               # 初始化子模块和独立 Python 环境
-├── start_gello_follow.sh  # CR7 跟随入口
-├── start_gripper.sh       # 夹爪服务器入口
-└── start_data_record.sh   # 跟随时记录从臂反馈，退出后离线转换
+xcore-sdk-python/Release/linux/xCoreSDK_python.cpython-311-x86_64-linux-gnu.so
 ```
+
+它适用于本指南的 Linux x86_64、CPython 3.11。其他架构或解释器需匹配库。
+现场标定文件仍不纳入 Git，首次使用按第 6 节生成。
+
+## 3. 配置有线通信，同时保持 WiFi 联网
+
+有线网卡只负责机器人同网段通信，WiFi 提供默认路由和 DNS。
+不要给直连机器人的有线配置设置默认网关。以下创建持久 NetworkManager 配置，安装时执行一次。
 
 ```bash
-git clone git@github.com:KnightOrNot/xcore-controller.git
-cd xcore-controller
-./setup.sh
-./setup.sh --check-only
+nmcli device status
+nmcli connection show
+
+# 替换为上面显示的实际有线网卡名；不要填写 WiFi 网卡
+wired_interface=enx0024321865b3
+sudo nmcli connection add type ethernet ifname "$wired_interface" \
+  con-name cr7-direct connection.autoconnect yes connection.autoconnect-priority 100 \
+  ipv4.method manual ipv4.addresses 192.168.2.100/24 \
+  ipv4.gateway "" ipv4.dns "" ipv4.never-default yes \
+  ipv4.ignore-auto-dns yes ipv4.route-metric 700 ipv6.method disabled
+sudo nmcli connection up cr7-direct
+
+ip -4 address show dev "$wired_interface"
+ip -4 route get 192.168.2.160
+ip -4 route get 192.168.2.225
+curl -I --connect-timeout 10 https://github.com
 ```
 
-需预先安装 git、pyenv、uv 和 Python 3.11 / 3.12（例如 `pyenv install -s 3.11.16`、
-`pyenv install -s 3.12.14`）。转换器使用独立 Python 3.12，安装锁定的 CPU 数据集依赖。
-SDK 与夹爪使用各自的 `uv.lock`；GELLO 保留原有 `requirements.txt` 安装方式。
-厂商 SDK 二进制需按 [SDK 安装说明](xcore-sdk-python/docs/README.md) 安装到 SDK 子模块。
-本机使用 CPython 3.11 对应的 Linux 扩展；二进制和现场标定文件不纳入 Git。
-`setup.sh` 不访问串口或连接机械臂。
+两条 `route get` 应走有线网卡，源地址为 `192.168.2.100`；最后一条应能访问外网。
+该配置断线重插后仍生效。已有正确的有线配置时跳过创建，不要重复添加同名配置。
+`never-default` 的含义见 [NetworkManager IPv4 文档](https://networkmanager.dev/docs/api/latest/settings-ipv4.html)。
 
-| 项目 | Python 包 | 主命令 |
-| --- | --- | --- |
-| xcore-sdk-python | `xcore_sdk_python` | `xcore-sdk-python` |
-| xcore-gello-software | `xcore_gello_software` | `xcore-gello-software` |
-| xcore-gripper-2F85 | `xcore_gripper_2f85` | `xcore-gripper-2f85`、`xcore-gripper-2f85-server` |
-| lerobot-converter | `lerobot_converter` | `lerobot-converter` |
-
-## 首次安装与标定
+如果更换了本机或机器人地址，在**每次运行跟随的终端**设置：
 
 ```bash
-cd /home/knight/projects/xcore/xcore-controller/xcore-sdk-python
-uv sync --frozen --python 3.11
-uv run xcore-sdk-python doctor
-uv run xcore-sdk-python status --ip 192.168.2.160
+export XCORE_ROBOT_IP=192.168.2.160
+export XCORE_LOCAL_IP=192.168.2.100
+export XCORE_GRIPPER_HOST=192.168.2.225
+export XCORE_GRIPPER_SSH_USER=rokae
 ```
 
-本机需要匹配 CPython 3.11 的厂商二进制。电脑有线网卡须已配置 `192.168.2.100/24`；换电脑时按实际地址修改配置。完整安装与网络说明见 [SDK 快速启动](xcore-sdk-python/README.md)。
-
-## 只用 sh 命令启动跟随
-
-在控制器目录运行。电脑通过 WiFi 联网，有线网卡使用 `192.168.2.100/24`
-直连 CR7 的 `192.168.2.160`，有线连接不设置默认网关或 DNS。
+换网段时还要相应修改 `cr7-direct` 的 IPv4 地址，环境变量不会配置网卡。
+仅在没有其他 SDK 会话、机械臂空闲时做连接检查：
 
 ```bash
-cd /home/knight/projects/xcore/xcore-controller
-# 首次安装环境；已有环境可只检查
-./setup.sh
-./setup.sh --check-only
-
-# 只读预览，核对主臂目标与从臂反馈
-./start_gello_follow.sh
-
-# 正常启动：对齐从臂到 GELLO 当前姿态，然后六轴与夹爪同时跟随
-./start_gello_follow.sh --enable-motion
+./xcore-sdk-python/.venv/bin/xcore-sdk-python status \
+  --ip 192.168.2.160 --local-ip 192.168.2.100
 ```
 
-这两条命令默认启用独立夹爪，需先在夹爪 USB/RS485 所在电脑启动
-`./start_gripper.sh --serial-port <夹爪串口>`；详见下方夹爪连接流程。
-仅测试六轴时，分别使用 `./start_gello_follow.sh --arm-only` 和
-`./start_gello_follow.sh --enable-motion --arm-only`。
+应返回 `ok: true`、六轴关节反馈和机器人信息；单纯 ping 通不能替代 SDK 连接检查。
 
-本机已在 2026-10-08 保存 `xcore-sdk-python/config/cr7_calib.json`，可以直接使用
-最后一条命令。**启动前保持 GELLO 在期望姿态，准备对齐期间保持主臂不动。**
-输入 `y` 确认后，脚本读取主臂、应用现场零位偏移和轴方向，选择与从臂当前
-关节角最近的 2π 分支，再以 `MoveAbsJ` 移动到这个目标。到位并检查主臂
-未移动后，关闭准备 SDK 会话，启动独占的实时服务和 GELLO 客户端。
-正常启动直接对齐当前目标，不要求主臂在零位，也不先回零或重新标定。
+## 4. GELLO 串口权限和设备识别
 
-准备速度默认 `4000 mm/s`（SDK 参数上限），每轴角度差上限 `180°`，
-每段运动到位等待默认 `600 s`，到位容差 `0.2°`。实时跟随默认上限为 `75°/s`。
-确认的是实际运动路径和范围；关节软限位不能判断周围障碍物。
+GELLO 接控制电脑，Robotiq 的 RS485 适配器接夹爪服务电脑。
+在控制电脑执行：
 
-### 新电脑或首次零位标定
+```bash
+sudo usermod -aG dialout "$USER"
+```
 
-现场标定文件不纳入 Git。缺少标定时，将 **GELLO 六轴摆到对应 CR7 六轴均为
-0° 的标准零位**，保持不动，再执行：
+**注销桌面并重新登录**，使组权限生效；然后打开新终端：
+
+```bash
+cd "$HOME/projects/xcore/xcore-controller"
+id -nG
+ls -l /dev/serial/by-id/
+
+# 填写本机实际 GELLO 路径；当前现场默认如下
+export XCORE_GELLO_PORT=/dev/serial/by-id/usb-FTDI_USB__-__Serial_Converter_FTB4C7PQ-if00-port0
+
+test -r "$XCORE_GELLO_PORT" && test -w "$XCORE_GELLO_PORT" && echo "GELLO 串口权限正常"
+```
+
+`id -nG` 应包含 `dialout`。推荐使用稳定的 `by-id` 路径；`/dev/ttyUSB0` 可能随插拔变化。
+环境变量仅在当前终端生效，换终端时重新设置实际路径。当前适配器名称与默认值一致时无需设置。
+后续不要同时运行其他 GELLO 读取、仿真或串口调试程序。
+
+## 5. 启动夹爪服务
+
+### 5.1 现场已经有后台服务
+
+当前 `.225` 系统已安装 `xcore-gripper-follow.service`。若继续使用这台系统，
+只需完成 SSH 登录设置和服务检查，**跳过 5.2 的首次部署**。
+
+在夹爪服务电脑的终端执行以下命令启用 SSH；已启用时跳过：
+
+```bash
+# 此步骤需要该电脑能访问 Ubuntu 软件源，可先连接 WiFi
+sudo apt update
+sudo apt install -y openssh-server
+sudo systemctl enable --now ssh
+hostname -I
+```
+
+在控制电脑执行（远端用户名或地址不同则替换）：
+
+```bash
+# 没有 SSH 密钥时创建；已有时保留原密钥
+if [ ! -f "$HOME/.ssh/id_ed25519.pub" ]; then
+  ssh-keygen -t ed25519
+fi
+ssh-copy-id rokae@192.168.2.225
+ssh rokae@192.168.2.225 'hostname'
+```
+
+首次连接核对远端主机指纹；`ssh-copy-id` 按提示输入远端账户密码。
+顶层管理脚本使用非交互 SSH，需密钥登录可用；密钥有口令时先在当前会话用 `ssh-add` 解锁。
+
+```bash
+./start_gripper.sh
+./start_gripper.sh --status
+```
+
+预期打印“远端夹爪服务已就绪”，有 `streaming: true`、`stream_error: null` 和实际 `position_raw`。
+已有服务不会重启。新系统显示“Unit ... not found”时继续执行 5.2。
+
+### 5.2 新夹爪服务电脑：首次部署
+
+这一节安装支持连续跟随的服务，供顶层 `start_gripper.sh` 管理。
+SSH 设置按 5.1 完成；远端需有 `/usr/bin/python3`（Python ≥ 3.9）。
+源码和 `pyserial` 由控制电脑打包传过去，**部署阶段远端无需访问外网或安装 uv/pyenv**。
+
+先在夹爪服务电脑操作，给实际服务账户串口权限，并辨认夹爪适配器：
+
+```bash
+sudo usermod -aG dialout "$USER"
+ls -l /dev/serial/by-id/
+```
+
+重新登录该账户／重新建立 SSH 会话，使组权限生效。当前夹爪适配器为
+`usb-FTDI_USB_TO_RS-485_DAAQMP8J-if00-port0`；另一台设备需使用自己的实际路径。
+先结束占用该串口或 5005 端口的旧夹爪服务，保持只运行一个服务实例。
+
+**在控制电脑的项目根目录打包并传输：**
+
+```bash
+gripper_bundle_dir="$(mktemp -d)"
+git -C xcore-gripper-2F85 archive HEAD | tar -xf - -C "$gripper_bundle_dir"
+uv pip install --python ./xcore-sdk-python/.venv/bin/python \
+  --target "$gripper_bundle_dir/vendor" pyserial==3.5
+tar -czf /tmp/xcore-gripper-service.tar.gz -C "$gripper_bundle_dir" .
+scp /tmp/xcore-gripper-service.tar.gz rokae@192.168.2.225:/tmp/
+ssh rokae@192.168.2.225
+```
+
+**以下命令在刚登录的远端 SSH 终端执行。** `GRIPPER_SERIAL_PORT` 一行需使用远端实际夹爪串口。
+这是新系统部署；已有现场后台服务直接使用 5.1。
+
+```bash
+mkdir -p "$HOME/xcore-gripper-service" "$HOME/.config/systemd/user"
+tar -xzf /tmp/xcore-gripper-service.tar.gz -C "$HOME/xcore-gripper-service"
+
+cat > "$HOME/xcore-gripper-service/start_server.sh" <<'SERVER'
+#!/usr/bin/env bash
+set -Eeuo pipefail
+service_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+export PYTHONPATH="$service_dir/src:$service_dir/vendor"
+exec /usr/bin/python3 -m xcore_gripper_2f85.gripper_server \
+  --host 0.0.0.0 --port 5005 --serial-port "${GRIPPER_SERIAL_PORT:?未配置夹爪串口}"
+SERVER
+chmod +x "$HOME/xcore-gripper-service/start_server.sh"
+
+cat > "$HOME/.config/systemd/user/xcore-gripper-follow.service" <<'UNIT'
+[Unit]
+Description=Robotiq 2F-85 continuous follow service
+After=network.target
+
+[Service]
+Type=simple
+Environment=PYTHONUNBUFFERED=1
+Environment=GRIPPER_SERIAL_PORT=/dev/serial/by-id/usb-FTDI_USB_TO_RS-485_DAAQMP8J-if00-port0
+ExecStart=%h/xcore-gripper-service/start_server.sh
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=10
+
+[Install]
+WantedBy=default.target
+UNIT
+
+systemctl --user daemon-reload
+systemctl --user enable --now xcore-gripper-follow.service
+systemctl --user status xcore-gripper-follow.service --no-pager
+journalctl --user -u xcore-gripper-follow.service -n 30 --no-pager
+exit
+```
+
+远端应为 `active (running)`，日志显示监听 `0.0.0.0:5005`。
+这是监听地址，控制电脑仍连接 `192.168.2.225:5005`。
+用户服务默认随账户登录运行；需要未登录也持续运行时，在远端执行
+`sudo loginctl enable-linger "$USER"`。防火墙已启用且阻断连接时，在远端允许控制电脑访问：
+`sudo ufw allow from 192.168.2.100 to any port 5005 proto tcp`。
+
+回到**控制电脑**检查：
+
+```bash
+./start_gripper.sh
+./start_gripper.sh --status
+```
+
+如果夹爪 USB 实际接在控制电脑，改在一个独立终端运行本机服务并保持终端打开：
+
+```bash
+./start_gripper.sh --local \
+  --serial-port /dev/serial/by-id/usb-FTDI_USB_TO_RS-485_DAAQMP8J-if00-port0
+```
+
+随后跟随命令添加 `--gripper-host 127.0.0.1`；可用 SDK 的只读检查确认：
+`./xcore-sdk-python/.venv/bin/xcore-sdk-python gripper-check --gripper-host 127.0.0.1`。
+本机模式必须指定真实夹爪串口，不能使用 GELLO 的 FTDI 串口。
+
+## 6. 首次标定：建立主臂与从臂的对应关系
+
+新 clone 没有 `xcore-sdk-python/config/cr7_calib.json`，需生成一次。
+已有本套硬件的有效现场标定时可恢复该文件并跳过本节；不能套用其他装配的偏移。
+
+将 **GELLO 六轴摆到与 CR7 六轴 `[0°, 0°, 0°, 0°, 0°, 0°]` 对应的标准姿态**，保持不动。
+夹爪服务先就绪，然后在控制电脑执行：
 
 ```bash
 ./start_gello_follow.sh --enable-motion --calibrate-zero
 ```
 
-这条命令先将 CR7 六轴移动到 `0°`，核对实际到位反馈，再采集 GELLO
-零位偏移并保存标定，随后进入跟随。仅首次标定走归零流程；不能把任意 GELLO
-姿态当作零位。已有标定不会被覆盖；需要重标定时指定新文件，并在后续启动中
-继续指定该文件：
+输入 `y` 后，脚本把 CR7 六轴移动至 0°，采集 GELLO 偏移并保存标定，随后直接进入六轴与夹爪跟随。
+**这条命令会真实运动**；不能将任意主臂姿态当作标准零位。
+标定成功后按 Ctrl+C 结束，再按第 7 节检查方向并实验。只标定六轴时可加 `--arm-only`。
+
+已有文件不会覆盖。需要重新标定时指定新文件，并在后续启动中使用同一个路径：
 
 ```bash
 ./start_gello_follow.sh --enable-motion --calibrate-zero \
   --calib ./xcore-sdk-python/config/cr7_calib_new.json
+# 后续启动
 ./start_gello_follow.sh --enable-motion \
   --calib ./xcore-sdk-python/config/cr7_calib_new.json
 ```
 
-单姿态标定只确定零位偏移，首次默认沿用本机六轴方向 `[1,1,1,1,1,1]`。
-轴方向需按现场逐轴核对；不同装配请使用 SDK 的同姿态标定命令指定 `--signs`。
-
-### 启动参数与停止
-
-可通过参数覆盖现场配置：
+默认六轴方向为 `[1, 1, 1, 1, 1, 1]`，单姿态标定只确定偏移，不能自动推断方向。
+不同装配需要指定方向时，先用示教器将从臂与主臂摆到已知相同关节姿态，保持两臂不动，
+再执行只读标定（示例将第 2 轴方向设为 `-1`，其余为 `+1`）：
 
 ```bash
-./start_gello_follow.sh --enable-motion \
-  --ip 192.168.2.160 --local-ip 192.168.2.100 \
-  --gello-port /dev/ttyUSB0 --calib ./xcore-sdk-python/config/cr7_calib.json \
-  --max-speed-deg 75 --prepare-speed 4000 --prepare-motion-timeout 600
+./xcore-sdk-python/.venv/bin/xcore-sdk-python follow-calibrate --ref-current \
+  --ip 192.168.2.160 --local-ip 192.168.2.100 --serial "$XCORE_GELLO_PORT" \
+  --signs 1 -1 1 1 1 1 --save ./xcore-sdk-python/config/cr7_calib_new.json
 ```
 
-启动对齐速度可以修改顶层脚本的 `prepare_speed="${XCORE_PREPARE_SPEED:-4000}"`，
-或使用 `--prepare-speed` 覆盖；也支持环境变量 `XCORE_PREPARE_SPEED`。
-这是 `MoveAbsJ` 的 SDK mm/s 参数，不是六个关节各自的 °/s 速度；合法范围
-为 5～4000，默认采用参数上限。
+按实际装配填写六个方向，保存路径必须不存在；`--ref-current` 要求两臂已经处于对应姿态。
+备份生成的标定文件，更换 GELLO 零位、装配或轴方向后重新标定。
 
-调节实时跟随速度时，可以直接修改本目录 `start_gello_follow.sh` 开头的
-`max_speed_deg="${XCORE_FOLLOW_MAX_SPEED_DEG:-75}"`，将末尾的 `75` 改成期望的
-每轴速度上限（单位 °/s）。也可以每次通过命令指定，例如：
+## 7. 预览、对齐和六轴＋夹爪跟随
 
-```bash
-./start_gello_follow.sh --enable-motion --max-speed-deg 10
-./start_gello_follow.sh --enable-motion --max-speed-deg 20
-# 环境变量方式：不修改脚本
-XCORE_FOLLOW_MAX_SPEED_DEG=10 ./start_gello_follow.sh --enable-motion
-```
+### 7.1 只读预览
 
-优先级为命令行参数 > 环境变量 > 脚本默认值。启动时会显示实际采用的限速。
-每次更换速度需要先按 Ctrl+C 结束上一次跟随，再重新启动。
-有效范围为 `0 < V <= 75°/s`；`75°/s` 是现有软件上限，不代表 CR7 的硬件
-最大速度或已经验证的实验速度。可从较低值逐步测试。
-加速度仍限制为 `40°/s²`，实际速度还取决于主臂运动、角度差和运动持续时间，
-短距离跟随不一定达到设定上限。此参数不改变启动对齐的 `--prepare-speed`。
-
-跟随默认只输出启动信息、错误和停止提示，不循环打印关节／夹爪状态，
-也不为终端显示额外查询每帧反馈。需要查看连续状态时显式启用：
+有标定且夹爪服务就绪后执行：
 
 ```bash
-./start_gello_follow.sh --enable-motion --show-state
-# 只读预览时查看连续数据
 ./start_gello_follow.sh --show-state
 ```
 
-`start_data_record.sh` 同样默认不循环打印；记录反馈、R/S/D/P/H 按键及
-故障检查仍正常工作，也支持 `--show-state`。
+不发送六轴或夹爪运动目标。逐轴小幅移动 GELLO，检查映射后的 `leader` 方向和角度；
+开合扳机，检查 `gripper_target` 是否在 0～1 间变化。预览时实际 `robot` 和
+`gripper_feedback.position_raw` 应保持实际从臂反馈。按 Ctrl+C 结束预览。
 
-脚本持有同一把单实例锁，准备、实时跟随和记录不会重叠占用 SDK 或 GELLO。
-已手动对齐时，可用 `./start_gello_follow.sh --enable-motion --skip-prepare` 跳过准备
-移动，仍保留启动对齐闸门。`--yes` 可跳过交互确认。参数错误、超限目标、
-准备期间主臂移动或准备失败都会阻止实时跟随启动。
+预览会显示启动偏差；只读模式允许两臂不对齐，不能移动从臂消除偏差。
+真实跟随要求对齐误差在约 `17.2°` 闸门以内，下面的真实运动入口会先自动对齐。
+`Dry-run only`／`dry-run` 表示只读模式，终端没有连续状态输出也不代表跟随已启用。
 
-按 **Ctrl+C** 停止。准备阶段会请求停止，等机器人空闲后恢复准备前的电源和模式；
-跟随阶段先停 GELLO 客户端，再关闭实时 SDK 会话，恢复 NRT／manual，
-不自动下电或归零。不要在跟随运行中再次启动脚本或另开 SDK 查询/运动命令。
-日志位于 `xcore-sdk-python/logs/follow-*/`：`preparation.json` 保存到位结果，
-`server.log` 保存实时跟随日志。
+### 7.2 启动真实跟随
 
-脚本实现位于 SDK 仓库的 [scripts/start_gello_follow.sh](xcore-sdk-python/scripts/start_gello_follow.sh)，本目录的同名脚本是便捷入口。仅克隆 SDK 仓库时，可直接运行 `./scripts/start_gello_follow.sh`。各操作也保留 `uv run xcore-sdk-python [指令] [参数]` 接口。
-
-控制器入口默认同时跟随六轴和独立外接夹爪，默认服务地址为 `192.168.2.225:5005`。
-可用 `--gripper-host` 指定另一台电脑，或用 `--arm-only` 仅启用六轴，见下方。
-2026-10-08 已完成 CR7 六轴归零、现场标定及实时跟随实测，用户确认能正常跟随。
-新增启动对齐流程有离线覆盖；独立夹爪联动和数采仍需单独完成真机验收。
-
-- [命令与快速启动](xcore-sdk-python/README.md)
-- [工程搭建、模块职责与验证边界](xcore-sdk-python/docs/DEVELOPMENT.md)
-- [历史 CR7／ROS2 仿真调研](docs/CR7_RESEARCH.md)
-
-
-## 夹爪服务与 GELLO 仿真
-
-本机现场的远端 `192.168.2.225` 已于 2026-10-08 升级，夹爪服务由
-`rokae` 用户级 systemd 在后台管理，正常使用无需再次手动启动。
-从当前电脑可检查：
+保持 GELLO 在希望从臂到达的姿态，确认运动路径，然后执行：
 
 ```bash
-./start_gripper.sh          # 通过 SSH 启动远端后台服务并检查；已有服务不会重启
-./start_gripper.sh --status # 只读检查 TCP 反馈
-```
-
-顶层入口默认不打开本机串口。本机的 FTDI `FTB4C7PQ` 属于 GELLO，
-将它当作夹爪串口会收不到 Modbus 回复。夹爪串口 `DAAQMP8J` 在远端 `.225`。
-如提示 `Gripper target stream timed out`，先结束统一跟随，再执行
-`./start_gripper.sh --reset-stream` 发送停止指令并清除断流故障。
-需要重启服务时使用 `./start_gripper.sh --restart`，服务重启会激活夹爪。
-
-服务随 `rokae` 用户登录启动；管理与部署说明见
-[远端夹爪服务](docs/GRIPPER_SERVER_UPDATE.md)。以下手动启动方法用于其他部署，
-不要与当前后台服务同时占用串口或 5005 端口。
-
-在连接夹爪 USB/RS485 的电脑启动夹爪服务：
-
-```bash
-# 列出设备；辨认夹爪适配器，与 GELLO 适配器区分
-ls -l /dev/serial/by-id/
-./start_gripper.sh --local --serial-port /dev/serial/by-id/<实际夹爪适配器名称>
-```
-
-上面的串口必须属于夹爪 RS485 适配器，与 GELLO 串口不同；优先使用实际
-`/dev/serial/by-id/...` 路径。本机模式要求明确串口，拒绝 GELLO 串口及其别名。
-夹爪服务启动会激活夹爪。
-
-服务就绪后，在另一终端运行统一跟随入口；同机服务使用 `127.0.0.1`，
-异机服务使用夹爪 USB 所在电脑的 IP：
-
-夹爪终端显示 `0.0.0.0:5005` 表示监听这台电脑的所有网卡，不是客户端的远程
-连接地址。服务同机时使用 `127.0.0.1`；服务异机时，在服务电脑运行
-`hostname -I` 查询客户端可达的实际 IP，并通过 `--gripper-host` 指定。
-
-```bash
-# 本机现场配置：远端夹爪为 192.168.2.225:5005；只读预览
-./start_gello_follow.sh
-
-# 远端服务就绪后，对齐并进入六轴与夹爪统一跟随
 ./start_gello_follow.sh --enable-motion
-
-# 若夹爪 USB 改为接在本机，则覆盖为本机地址
-./start_gello_follow.sh --enable-motion --gripper-host 127.0.0.1
-
-# 暂未连接夹爪时，仅测试六轴
-./start_gello_follow.sh --enable-motion --arm-only
 ```
 
-夹爪服务必须先就绪。统一脚本在连接 CR7、打开 GELLO 和准备运动前发送只读
-`follow_status`，校验服务能力、激活状态和实际夹爪位置；失败则退出，
-不会悄悄改为仅六轴。`--arm-only` 与显式 `--gripper-host` 不能同时使用。
-也可设置脚本开头的 `gripper_host` 或环境变量 `XCORE_GRIPPER_HOST`。
-SDK 仓库的独立脚本仍按 `--gripper-host`／环境变量启用夹爪。
+输入 `y` 后，先用已有标定对齐六轴到 **GELLO 当前姿态**，到位后自动进入跟随。
+日常启动不要求主臂归零，也不重新标定。准备期间保持主臂静止，出现“对齐完成”并启动
+客户端后再移动。依次小幅移动六个关节，再开合扳机，检查从臂六轴与实际夹爪均跟随。
+夹爪目标从实时跟随开始发送，六轴对齐阶段不执行夹爪姿态对齐。
 
-本机的 CR7 为 `192.168.2.160`，夹爪服务系统的有线 IP 为 `192.168.2.225`；
-后者还拥有 WiFi 地址 `10.194.89.200`，当前通过有线地址通信。
-若预检查提示只支持 `activate/status/open/close/move`，表示远端仍运行旧服务，
-需要升级到支持 `follow_status/set_target/stop` 的版本；仅修改客户端地址不能
-启用连续跟随。远端服务管理见 [夹爪服务部署](docs/GRIPPER_SERVER_UPDATE.md)。
+| 参数 | 默认值与说明 |
+| --- | --- |
+| `--max-speed-deg` | `75°/s`，实时六轴速度软件上限；允许 `0 < V <= 75` |
+| `--prepare-speed` | `4000 mm/s`，启动对齐的 SDK 参数上限，允许 5～4000 |
+| 六轴加速度 | `40°/s²`；短距离跟随可能达不到设定速度 |
+| `--hz` / `--gripper-hz` | 六轴 50 Hz／独立夹爪 5 Hz |
+| `--gripper-speed` / `--gripper-force` | `150`／`0`，夹爪参数范围 0～255 |
+| `--gripper-open-deg` / `--gripper-close-deg` | GELLO 扳机角度端点 `194.8°`／`153°` |
+| `--gripper-open-pos` / `--gripper-closed-pos` | 从臂夹爪原始位置端点 `0`／`255`，按实测调整 |
 
-同一客户端每帧读取 GELLO 六轴和 ID 7 扳机，再分别发送到 CR7 六轴服务和夹爪 TCP 服务。
-默认六轴 50 Hz、夹爪 5 Hz。夹爪工作线程只发送最新闭合度，不阻塞机械臂目标更新；
-服务端允许运动中修改目标。`--gripper-open-deg` / `--gripper-close-deg` 默认
-194.8° / 153°，需按实测确认；实际夹爪端点通过 `--gripper-open-pos` /
-`--gripper-closed-pos` 设置，速度、力度通过 `--gripper-speed` / `--gripper-force` 设置。
-
-跟随期间仅统一客户端读取 GELLO，不同时启动 `read` 或仿真跟随进程。
-Ctrl+C 停止客户端时发送夹爪停止请求，并退出 CR7 跟随；夹爪默认 1.5 s 未收到刷新
-会触发服务端停止保护。已完成真实位置保持目标及停止指令通信验证，
-全行程开合与实际响应速度仍需跟随实验验收。
-启用 `--show-state` 后，输出中的 `gripper_target` 是 GELLO 扳机映射的 0～1 闭合度，
-`gripper_feedback.position_raw` 是实际从臂夹爪反馈；两者同时显示以便核对跟随。
-完整参数与测试边界见 [SDK README](xcore-sdk-python/README.md)。
-
-## 从臂六轴与夹爪数据记录和转换
-
-确保远端夹爪服务运行，再启动记录入口。它包含统一跟随流程，不同时启动普通
-`start_gello_follow.sh` 或其他 GELLO 读取进程；启动时按已有标定先对齐到
-主臂当前目标，再跟随和记录。记录入口也支持 `--prepare-*`、`--skip-prepare`
-和首次 `--calibrate-zero` 参数。
+`75°/s` 是软件上限；`4000` 是 SDK 速度参数，不能解释为每轴 4000°/s，
+也不能据此认定实际硬件最大速度。当前默认配置采用这两个上限；首次检查可明确降低：
 
 ```bash
-./start_data_record.sh --task "pick up the object"
-# 自定义夹爪地址、数据集帧率，并在对齐后立即记录第一段
-./start_data_record.sh --gripper-host 192.168.2.225 --task "pick object" \
-  --dataset-fps 30 --start-recording
+./start_gello_follow.sh --enable-motion --max-speed-deg 10 --prepare-speed 50
+# 已确认现场范围后，按需要调节实时速度与对齐速度
+./start_gello_follow.sh --enable-motion --max-speed-deg 30 --prepare-speed 1000
 ```
 
-R 开始 episode，S 保存，D 丢弃，P 查看状态，H 查看帮助。
-Ctrl+C 先停止跟随并关闭 SDK 服务，再转换已经保存的 episode。
-未保存的 episode 留为 `.jsonl.partial`，不会被当作正式训练数据转换。
-
-```text
-data/raw/session_*/manifest.json
-data/raw/session_*/episodes/episode_000000.jsonl
-data/raw/session_*/episodes/episode_000001.jsonl.partial
-data/lerobot/session_*/data/ + meta/ + quality_report.json
-```
-
-`action` 为七维请求目标；`observation.state` 为六轴实际 SDK 关节角加实际夹爪
-闭合度。记录同时保留两路反馈时间戳、年龄和夹爪原始位置，不用主臂目标替代实测反馈。
-夹爪闭合度通过实际位置及夹爪端点标定归一化到 0～1。
-CR7 数据不填充不存在的速度或末端位姿 feature。
-默认 raw 循环 50 Hz，转换 30 FPS；反馈仍按各自实际刷新率更新，质量报告显示
-两路反馈频率和最大年龄。反馈缺失/过期或写盘队列满会停止跟随并保留 `.partial`。
-
-只记录原始数据、稍后手工转换：
+每次换参数先 Ctrl+C 结束上一次跟随。命令行优先于环境变量，再优先于脚本默认值。
+`XCORE_FOLLOW_MAX_SPEED_DEG`、`XCORE_PREPARE_SPEED` 可设置速度；也可修改顶层脚本开头的默认值。
+夹爪端点、速度和力度都可通过表中参数覆盖，例如：
 
 ```bash
-./start_data_record.sh --task "pick object" --skip-conversion
-./lerobot-converter/.venv/bin/python tools/convert_cr7.py \
-  data/raw/session_YYYYMMDD_HHMMSS data/lerobot/session_YYYYMMDD_HHMMSS \
-  --repo-id local/cr7_gello_session_YYYYMMDD_HHMMSS --fps 30
+./start_gello_follow.sh --enable-motion \
+  --gripper-open-deg 194.8 --gripper-close-deg 153 \
+  --gripper-open-pos 0 --gripper-closed-pos 230 --gripper-speed 150 --gripper-force 30
 ```
 
-可用 `--raw-data-root` / `--lerobot-data-root` 更改目录。
-输出目录必须不存在，转换不覆盖旧数据，不上传到 Hugging Face。
-`lerobot-converter` 子模块保持原样。CR7 的适配全部位于控制器新增
-`tools/convert_cr7.py`，复用其重采样和数据集写入功能；
-说明见 [数据记录与转换](docs/DATA_RECORDING.md)。
-已完成离线记录/退出测试和真实 LeRobot 数据集写入验证；本机从臂真机采集尚待验收。
+仅测试六轴时运行 `./start_gello_follow.sh --enable-motion --arm-only`，无需夹爪服务。
+`--arm-only` 不能与 `--gripper-host` 同用。
+默认只输出启动、错误及停止信息，需要连续状态时加 `--show-state`。
 
-查看各子项目的独立命令：
+**停止：按 Ctrl+C，等待客户端和服务端退出。** 脚本请求停止六轴和夹爪，
+跟随退出恢复 NRT／manual，不自动回零或下电。不要在跟随中另开 SDK 查询或控制会话。
+紧急情况使用设备硬件急停；终端退出不能替代硬件急停。
+
+## 8. 日常启动
+
+安装、网络和标定完成后，每次在控制电脑执行以下流程即可。
+按实际设备设置 `XCORE_GELLO_PORT`；使用新标定文件时给预览和跟随均添加 `--calib`。
 
 ```bash
-./xcore-sdk-python/.venv/bin/xcore-sdk-python --help
-./xcore-gello-software/.venv/bin/xcore-gello-software --help
-./xcore-gripper-2F85/.venv/bin/xcore-gripper-2f85 --help
+cd "$HOME/projects/xcore/xcore-controller"
+export XCORE_GELLO_PORT=/dev/serial/by-id/usb-FTDI_USB__-__Serial_Converter_FTB4C7PQ-if00-port0
+
+# 1. 启动并检查远端夹爪服务；已有服务不重启
+./start_gripper.sh
+
+# 2. 可选：只读查看六轴／扳机；结束后按 Ctrl+C
+./start_gello_follow.sh --show-state
+
+# 3. 主臂保持期望姿态；输入 y，等待对齐完成再移动主臂
+./start_gello_follow.sh --enable-motion
+# 实验结束按 Ctrl+C，等待退出
 ```
 
-GELLO 仿真与原来的实验脚本均可使用；CR7 仿真需先准备
-`xcore-gello-software/third_party/cr7/cr7_scene.xml` 及其模型资源，详见子项目文档。
+远端地址或账户变化时，在同一终端设置
+`XCORE_GRIPPER_HOST` / `XCORE_GRIPPER_SSH_USER`；CR7 和本机地址变化时设置
+`XCORE_ROBOT_IP` / `XCORE_LOCAL_IP`。只用六轴可跳过夹爪检查，跟随命令加 `--arm-only`。
 
-## 子模块维护
+## 9. 常见问题
 
-拉取控制器固定版本：
+| 现象 | 检查与处理 |
+| --- | --- |
+| 插网线后不能上网 | 第 3 节确保活动有线配置为静态地址、无网关／DNS、`never-default=yes`；WiFi 保持联网 |
+| `pyenv: python: command not found` | `pyenv versions` 确认已装 3.11.16，执行 `pyenv global 3.11.16`，重新打开终端 |
+| 找不到 SDK 扩展 | 初始化并更新 SDK 子模块；检查第 2 节的 `.so` 存在，解释器是 3.11，架构是 x86_64，再运行 `doctor` |
+| GELLO 串口不存在／无权限 | 检查 `by-id` 和 `XCORE_GELLO_PORT`；加入 `dialout` 后重新登录 |
+| 缺少标定 | 执行第 6 节；正常 clone 不带现场 `cr7_calib.json` |
+| 只预览、不运动 | 命令必须有 `--enable-motion`，并输入 `y`；裸 `.sh` 是 dry-run |
+| `Connection refused`（夹爪） | 服务需运行在 RS485 所在电脑；检查 `.225:5005`，不能将 `0.0.0.0` 当远端地址 |
+| SSH 登录失败 | 手工 `ssh rokae@192.168.2.225` 核对地址、用户、主机指纹和密钥；配置 `ssh-copy-id`，有口令时 `ssh-add` |
+| `Unit ... not found` | 新远端尚未部署用户服务，执行 5.2；服务属于部署时使用的那个账户 |
+| 夹爪服务不支持 streaming | 旧 demo 只有 open/close/move，需部署本项目服务，支持 follow_status/set_target/stop |
+| Modbus 回复长度不足／旧服务 `IndexError` | 确认夹爪电源、RS485 接线、真实夹爪串口；本机 GELLO FTDI 不能当 Robotiq 串口 |
+| `Gripper target stream timed out` | 先结束跟随，再执行 `./start_gripper.sh --reset-stream`，检查正常后重新启动 |
+| 对齐失败／主臂移动／超限 | 保持主臂静止，核对标定、目标和示教器；准备每轴最大跨度 180°，到位等待 600 s；失败后检查实际姿态再重试 |
+| “已有跟随启动流程正在运行” | 结束上一跟随／记录进程，等待退出；不要同时启动两个入口 |
+
+夹爪故障排查命令（在控制电脑执行）：
+
+```bash
+./start_gripper.sh --status
+ssh rokae@192.168.2.225 'systemctl --user status xcore-gripper-follow.service --no-pager'
+ssh rokae@192.168.2.225 'journalctl --user -u xcore-gripper-follow.service -n 50 --no-pager'
+# 先结束跟随；需要重启时执行（重启会激活夹爪）
+./start_gripper.sh --restart
+```
+
+跟随日志在 `xcore-sdk-python/logs/follow-*/`：`preparation.json` 是对齐结果，
+`server.log` 是服务端日志。六轴跟随已实测；默认高速度对齐和夹爪全行程跟随仍需按现场逐项验收。
+
+## 10. 更新与数据记录
+
+更新到控制器固定的子模块版本，结束实验后执行；不用 `submodule update --remote`：
 
 ```bash
 git pull --ff-only
 git submodule sync
-git submodule update --init
+git -c url."https://github.com/".insteadOf=git@github.com: submodule update --init
+./setup.sh --skip-submodules
+./setup.sh --check-only
 ```
 
-子项目修改应先在对应仓库测试、提交并推送，再提交控制器的子模块指针。例如：
+远端夹爪部署目录独立于本机子模块；本机更新不会自动更新远端服务。
+
+需要记录从臂反馈时，使用记录入口代替普通跟随入口：
 
 ```bash
-git -C xcore-sdk-python switch main
-git -C xcore-sdk-python pull --ff-only
-git add xcore-sdk-python
-git commit -m "chore: update xcore-sdk-python submodule"
-git push origin main
+./start_gripper.sh
+./start_data_record.sh --task "pick up the object"
 ```
 
-GELLO 和夹爪项目使用相同流程。子模块可能处于 detached HEAD，这是按提交固定版本的正常状态。
+它先对齐再跟随；R 开始记录、S 保存、D 丢弃、P 查看状态、H 帮助。
+Ctrl+C 停止后自动转换已保存片段；原始数据在 `data/raw/`，LeRobot 数据在 `data/lerobot/`。
+
+工程细节与原 README 内容见 [docs/DEVELOPMET.md](docs/DEVELOPMET.md)；
+扩展说明见 [数据记录](docs/DATA_RECORDING.md)、[现场夹爪服务管理](docs/GRIPPER_SERVER_UPDATE.md)。
