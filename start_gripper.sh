@@ -13,6 +13,7 @@ usage() {
     cat <<'EOF'
 用法：./start_gripper.sh [选项]
 默认通过 SSH 启动远端 .225 的后台夹爪服务并检查 TCP:5005，不打开本机串口。
+启动时会在确认没有跟随／回零任务后自动清除单纯的断流超时锁定。
   --gripper-host HOST  远端地址，默认 192.168.2.225
   --ssh-user USER     远端用户名，默认 rokae
   --status            仅检查 TCP 服务，不启动或重启
@@ -61,28 +62,50 @@ fi
 [[ "$action" != status || "$reset_stream" == false ]] || fail "--status 是只读检查，不能与 --reset-stream 同时使用"
 python="$root_dir/xcore-sdk-python/.venv/bin/python"
 [[ -x "$python" ]] || fail "请先运行 ./setup.sh 安装 SDK 环境"
+if [[ "$action" == restart ]]; then
+    exec 9>"$root_dir/xcore-sdk-python/.follow.lock"
+    flock -n 9 || fail "已有跟随／回零任务运行；先结束实验再重启夹爪服务"
+fi
 if [[ "$action" != status ]]; then
     command -v ssh >/dev/null || fail "未安装 SSH 客户端"
     echo "远端夹爪：$gripper_host:5005，服务操作：$action"
     ssh -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=5 \
-        "$ssh_user@$gripper_host" "systemctl --user $action xcore-gripper-follow.service"
+        "$ssh_user@$gripper_host" "systemctl --user $action xcore-gripper-follow.service" 9>&-
 fi
 
-"$python" - "$gripper_host" "$reset_stream" "$action" <<'PY'
+"$python" - "$gripper_host" "$reset_stream" "$action" "$root_dir/xcore-sdk-python/.follow.lock" 9>&- <<'PY'
+import fcntl
 import json
 import sys
 import time
-from xcore_sdk_python.gripper_follow import GripperFollowClient
+from xcore_sdk_python.gripper_follow import GripperFollowClient, GripperStreamFault
 
-host, reset, action = sys.argv[1:]
+host, reset, action, lock_path = sys.argv[1:]
 client = GripperFollowClient(host, 5005, 1)
 deadline = time.monotonic() + (15 if action != "status" else 0)
+
+def stop_idle_stream():
+    with open(lock_path, "a") as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError as error:
+            raise RuntimeError("已有跟随／回零任务运行，未发送夹爪 stop；请等待实验退出") from error
+        client.request("stop")
+        return client.check()
+
 try:
     while True:
         try:
             if reset == "true":
-                client.request("stop")
-            state = client.check()
+                state = stop_idle_stream()
+            else:
+                try:
+                    state = client.check()
+                except GripperStreamFault as error:
+                    if action != "start" or error.reason != "Gripper target stream timed out":
+                        raise
+                    state = stop_idle_stream()
+                    print("已清除上次退出留下的夹爪断流超时；未重启或重新激活夹爪。")
             break
         except OSError:
             if time.monotonic() >= deadline:

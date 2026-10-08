@@ -195,8 +195,9 @@ XCORE_FOLLOW_MAX_SPEED_DEG=10 ./start_gello_follow.sh --enable-motion
 
 顶层入口默认不打开本机串口。本机的 FTDI `FTB4C7PQ` 属于 GELLO，
 将它当作夹爪串口会收不到 Modbus 回复。夹爪串口 `DAAQMP8J` 在远端 `.225`。
-如提示 `Gripper target stream timed out`，先结束统一跟随，再执行
-`./start_gripper.sh --reset-stream` 发送停止指令并清除断流故障。
+如提示 `Gripper target stream timed out`，等待统一跟随和回零退出，再执行
+`./start_gripper.sh` 自动发送 stop 清除超时锁定；`--status` 不清除故障。
+也可用 `--reset-stream` 显式清除，运行中的跟随锁会阻止恢复／重启。
 需要重启服务时使用 `./start_gripper.sh --restart`，服务重启会激活夹爪。
 
 服务随 `rokae` 用户登录启动；管理与部署说明见

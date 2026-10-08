@@ -230,7 +230,10 @@ ssh rokae@192.168.2.225 'hostname'
 ```
 
 预期打印“远端夹爪服务已就绪”，有 `streaming: true`、`stream_error: null` 和实际 `position_raw`。
-已有服务不会重启。新系统显示“Unit ... not found”时继续执行 5.2。
+已有服务不会重启。如果上次退出留下单纯的“目标断流超时”，入口会在取得跟随锁、
+确认没有跟随／回零任务后自动发送 `stop` 清除锁定，再检查反馈；不重新激活或开爪。
+`--status` 始终只读。串口、电源等其他故障仍会报错，不自动清除。
+新系统显示“Unit ... not found”时继续执行 5.2。
 
 ### 5.2 新夹爪服务电脑：首次部署
 
@@ -483,7 +486,7 @@ export XCORE_GELLO_PORT=/dev/serial/by-id/usb-FTDI_USB__-__Serial_Converter_FTB4
 | `Unit ... not found` | 新远端尚未部署用户服务，执行 5.2；服务属于部署时使用的那个账户 |
 | 夹爪服务不支持 streaming | 旧 demo 只有 open/close/move，需部署本项目服务，支持 follow_status/set_target/stop |
 | Modbus 回复长度不足／旧服务 `IndexError` | 确认夹爪电源、RS485 接线、真实夹爪串口；本机 GELLO FTDI 不能当 Robotiq 串口 |
-| `Gripper target stream timed out` | 先结束跟随，再执行 `./start_gripper.sh --reset-stream`，检查正常后重新启动 |
+| `Gripper target stream timed out` | 等跟随／回零退出，再执行 `./start_gripper.sh` 自动清除超时锁定；`--status` 仅查看，`--reset-stream` 可手动清除 |
 | 对齐失败／主臂移动／超限 | 保持主臂静止，核对标定、目标和示教器；准备每轴最大跨度 180°，到位等待 600 s；失败后检查实际姿态再重试 |
 | “已有跟随启动流程正在运行” | 结束上一跟随／记录进程，等待退出；不要同时启动两个入口 |
 

@@ -40,7 +40,7 @@
 控制器入口默认管理远端服务，不会尝试本机 USB：
 
 ```bash
-./start_gripper.sh                # 启动／检查已安装的用户服务，已有服务不会重启
+./start_gripper.sh                # 启动／检查；空闲时自动清除单纯的断流超时，已有服务不重启
 ./start_gripper.sh --status       # 只读检查服务能力及实际反馈
 ./start_gripper.sh --restart      # 先结束跟随，再重启（会激活夹爪）
 ./start_gripper.sh --reset-stream # 先结束跟随，停止并清除断流故障
@@ -50,6 +50,12 @@
 `XCORE_GRIPPER_HOST`、`XCORE_GRIPPER_SSH_USER` 覆盖。
 只有明确 `--local --serial-port <实际夹爪串口>` 时才启动本机服务，
 该模式会拒绝当前 GELLO 串口及其指向同一设备的别名。
+
+默认启动只自动恢复精确的 `Gripper target stream timed out` 故障：取得本机
+SDK `.follow.lock` 后发送 `stop` 并重新读取实际反馈，不执行重新激活或开爪。
+跟随／回零任务占锁时拒绝恢复；显式重启和 `--reset-stream` 也受到锁保护。
+`--status` 保持只读，串口错误及带有 stop 失败信息的故障不会自动清除。
+客户端清理阶段忽略重复 SIGTERM，确保夹爪 stop 回包和记录文件关闭能完成。
 
 检查服务与近期日志：
 

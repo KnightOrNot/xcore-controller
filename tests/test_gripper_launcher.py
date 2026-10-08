@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import fcntl
 import json
 import os
 import shlex
@@ -34,6 +35,37 @@ def launcher(tmp_path):
 
     stub(binaries / "ssh", "ssh")
     stub(root / "xcore-sdk-python/.venv/bin/python", "check")
+    # Execute the launcher's actual inline Python against a fake protocol client.
+    check = root / "xcore-sdk-python/.venv/bin/python"
+    check.write_text(
+        f"#!{sys.executable}\n"
+        "import json,os,sys,types\n"
+        "with open(os.environ['CALLS'],'a') as f:\n"
+        "    f.write(json.dumps({'command':'check','args':sys.argv[1:]})+'\\n')\n"
+        "protocol=os.environ['CALLS']+'.protocol'\n"
+        "class Fault(RuntimeError):\n"
+        "    def __init__(self,reason):\n"
+        "        self.reason=reason; super().__init__('Gripper stream fault: '+reason)\n"
+        "class Client:\n"
+        "    cleared=False\n"
+        "    def __init__(self,*args): pass\n"
+        "    def request(self,cmd):\n"
+        "        with open(protocol,'a') as f: f.write(cmd+'\\n')\n"
+        "        if cmd=='stop': self.cleared=True\n"
+        "        return {'streaming':True,'position_raw':3,'stream_error':None}\n"
+        "    def check(self):\n"
+        "        state=self.request('follow_status')\n"
+        "        if os.environ.get('FAULT') and not self.cleared:\n"
+        "            raise Fault(os.environ['FAULT'])\n"
+        "        return state\n"
+        "package=types.ModuleType('xcore_sdk_python'); package.__path__=[]\n"
+        "module=types.ModuleType('xcore_sdk_python.gripper_follow')\n"
+        "module.GripperFollowClient=Client; module.GripperStreamFault=Fault\n"
+        "sys.modules['xcore_sdk_python']=package\n"
+        "sys.modules[module.__name__]=module\n"
+        "sys.argv=sys.argv[1:]\n"
+        "exec(compile(sys.stdin.read(),'launcher inline Python','exec'))\n"
+    )
     # The local launcher uses bash explicitly, so the local stub is a shell shim.
     local = root / "xcore-gripper-2F85/run_gripper.sh"
     local.parent.mkdir(parents=True)
@@ -120,3 +152,38 @@ def test_local_mode_requires_an_explicit_port(launcher):
     assert result.returncode != 0
     assert "必须指定 --serial-port" in result.stderr
     assert calls == []
+
+
+@pytest.mark.parametrize(
+    "options,fault,recovers",
+    [
+        ([], "Gripper target stream timed out", True),
+        (["--status"], "Gripper target stream timed out", False),
+        ([], "serial read failed", False),
+    ],
+)
+def test_only_idle_start_recovers_plain_timeout(launcher, options, fault, recovers):
+    _root, env, path = launcher
+    env["FAULT"] = fault
+    result, _ = run(launcher, options)
+    assert result.returncode == (0 if recovers else 1), result.stderr
+    requests = Path(str(path) + ".protocol").read_text().splitlines()
+    assert ("stop" in requests) is recovers
+    if recovers:
+        assert requests == ["follow_status", "stop", "follow_status"]
+        assert "已清除" in result.stdout
+
+
+@pytest.mark.parametrize("options", [[], ["--reset-stream"], ["--restart"]])
+def test_active_follow_lock_blocks_stop_or_restart(launcher, options):
+    root, env, path = launcher
+    env["FAULT"] = "Gripper target stream timed out"
+    with (root / "xcore-sdk-python/.follow.lock").open("w") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        result, calls = run(launcher, options)
+    assert result.returncode != 0
+    assert "已有跟随／回零任务" in result.stderr
+    protocol = Path(str(path) + ".protocol")
+    assert not protocol.exists() or "stop" not in protocol.read_text().splitlines()
+    if options == ["--restart"]:
+        assert calls == []
