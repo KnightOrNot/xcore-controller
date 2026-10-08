@@ -154,7 +154,7 @@ XCORE_FOLLOW_MAX_SPEED_DEG=10 ./start_gello_follow.sh --enable-motion
 
 脚本实现位于 SDK 仓库的 [scripts/start_gello_follow.sh](xcore-sdk-python/scripts/start_gello_follow.sh)，本目录的同名脚本是便捷入口。仅克隆 SDK 仓库时，可直接运行 `./scripts/start_gello_follow.sh`。各操作也保留 `uv run xcore-sdk-python [指令] [参数]` 接口。
 
-控制器入口默认同时跟随六轴和独立外接夹爪，默认服务地址为 `127.0.0.1:5005`。
+控制器入口默认同时跟随六轴和独立外接夹爪，默认服务地址为 `192.168.2.225:5005`。
 可用 `--gripper-host` 指定另一台电脑，或用 `--arm-only` 仅启用六轴，见下方。
 2026-10-08 已完成 CR7 六轴归零、现场标定及实时跟随实测，用户确认能正常跟随。
 新增启动对齐流程有离线覆盖；独立夹爪联动和数采仍需单独完成真机验收。
@@ -185,14 +185,14 @@ ls -l /dev/serial/by-id/
 `hostname -I` 查询客户端可达的实际 IP，并通过 `--gripper-host` 指定。
 
 ```bash
-# 只读预览：不发送机械臂或夹爪运动目标
-./start_gello_follow.sh --gripper-host 127.0.0.1
+# 本机现场配置：远端夹爪为 192.168.2.225:5005；只读预览
+./start_gello_follow.sh
 
-# 同机：按已有标定对齐，再六轴与夹爪同时跟随
+# 远端服务就绪后，对齐并进入六轴与夹爪统一跟随
 ./start_gello_follow.sh --enable-motion
 
-# 异机：将地址换成夹爪服务电脑的实际 IP
-./start_gello_follow.sh --enable-motion --gripper-host 192.168.2.200
+# 若夹爪 USB 改为接在本机，则覆盖为本机地址
+./start_gello_follow.sh --enable-motion --gripper-host 127.0.0.1
 
 # 暂未连接夹爪时，仅测试六轴
 ./start_gello_follow.sh --enable-motion --arm-only
@@ -203,6 +203,12 @@ ls -l /dev/serial/by-id/
 不会悄悄改为仅六轴。`--arm-only` 与显式 `--gripper-host` 不能同时使用。
 也可设置脚本开头的 `gripper_host` 或环境变量 `XCORE_GRIPPER_HOST`。
 SDK 仓库的独立脚本仍按 `--gripper-host`／环境变量启用夹爪。
+
+本机的 CR7 为 `192.168.2.160`，夹爪服务系统的有线 IP 为 `192.168.2.225`；
+后者还拥有 WiFi 地址 `10.194.89.200`，当前通过有线地址通信。
+若预检查提示只支持 `activate/status/open/close/move`，表示远端仍运行旧服务，
+需要升级到支持 `follow_status/set_target/stop` 的版本；仅修改客户端地址不能
+启用连续跟随。远端升级步骤见 [夹爪服务升级](docs/GRIPPER_SERVER_UPDATE.md)。
 
 同一客户端每帧读取 GELLO 六轴和 ID 7 扳机，再分别发送到 CR7 六轴服务和夹爪 TCP 服务。
 默认六轴 50 Hz、夹爪 5 Hz。夹爪工作线程只发送最新闭合度，不阻塞机械臂目标更新；
@@ -227,7 +233,7 @@ Ctrl+C 停止客户端时发送夹爪停止请求，并退出 CR7 跟随；夹�
 ```bash
 ./start_data_record.sh --task "pick up the object"
 # 自定义夹爪地址、数据集帧率，并在对齐后立即记录第一段
-./start_data_record.sh --gripper-host 127.0.0.1 --task "pick object" \
+./start_data_record.sh --gripper-host 192.168.2.225 --task "pick object" \
   --dataset-fps 30 --start-recording
 ```
 

@@ -93,6 +93,7 @@ def test_record_entry_routes_options_and_converts_after_shutdown(launcher):
     assert result.returncode == 0, result.stdout + result.stderr
     args = json.loads((launcher / "args.json").read_text())
     assert "--enable-motion" in args
+    assert args[args.index("--gripper-host") + 1] == "192.168.2.225"
     assert "--skip-prepare" in args
     assert args[args.index("--prepare-speed") + 1] == "50"
     assert args[args.index("--task") + 1] == "pick object"

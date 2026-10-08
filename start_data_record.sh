@@ -7,7 +7,7 @@ dataset_root="$root_dir/data/lerobot"
 dataset_fps=30
 convert=true
 task="CR7 GELLO teleoperation"
-gripper_host=127.0.0.1
+gripper_host="${XCORE_GRIPPER_HOST:-192.168.2.225}"
 follow_options=()
 follow_pid=""
 session_file=""
@@ -24,7 +24,7 @@ R=开始，S=保存，D=丢弃，P=状态，H=帮助；Ctrl+C 停止后转换已
   --dataset-fps N            默认 30
   --skip-conversion          仅记录 raw
   --task TEXT                任务描述
-  --gripper-host HOST        默认 127.0.0.1
+  --gripper-host HOST        默认 192.168.2.225，可用 XCORE_GRIPPER_HOST 覆盖
   --start-recording          对齐后立即开始 episode 0
 其余 --ip、--local-ip、--gello-port、--calib、--hz、--prepare-*、--skip-prepare、
 --calibrate-zero、--gripper-*、--record-*、--yes

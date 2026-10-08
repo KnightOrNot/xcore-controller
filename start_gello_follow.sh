@@ -9,7 +9,7 @@ max_speed_deg="${XCORE_FOLLOW_MAX_SPEED_DEG:-3}"
 # 启动对齐的 SDK 速度参数（mm/s），与实时跟随限速独立。
 prepare_speed="${XCORE_PREPARE_SPEED:-1000}"
 # 默认同时跟随夹爪；夹爪服务需先启动。仅六轴测试使用 --arm-only。
-gripper_host="${XCORE_GRIPPER_HOST:-127.0.0.1}"
+gripper_host="${XCORE_GRIPPER_HOST:-192.168.2.225}"
 export XCORE_GRIPPER_HOST="$gripper_host"
 
 root_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
