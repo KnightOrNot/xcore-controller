@@ -81,7 +81,14 @@ def launcher(tmp_path):
         "PATH": f"{binaries}:{os.environ['PATH']}",
         "CALLS": str(calls),
     }
-    for name in ("XCORE_GRIPPER_HOST", "XCORE_GRIPPER_SSH_USER", "GRIPPER_SERIAL_PORT"):
+    for name in (
+        "XCORE_GRIPPER_HOST",
+        "XCORE_GRIPPER_SSH_USER",
+        "XCORE_GRIPPER_PORT",
+        "XCORE_SSH_CONNECT_TIMEOUT",
+        "XCORE_GRIPPER_READY_TIMEOUT",
+        "GRIPPER_SERIAL_PORT",
+    ):
         env.pop(name, None)
     env["XCORE_GELLO_PORT"] = str(gello)
     return root, env, calls
@@ -114,7 +121,8 @@ def test_remote_entry_never_launches_local_serial_server(launcher, options):
     assert "local" not in [call["command"] for call in calls]
     assert calls[-1]["command"] == "check"
     assert calls[-1]["args"][1] == "192.168.2.225"
-    assert calls[-1]["args"][2] == ("true" if "--reset-stream" in options else "false")
+    assert calls[-1]["args"][2] == "5005"
+    assert calls[-1]["args"][3] == ("true" if "--reset-stream" in options else "false")
     if options == ["--status"]:
         assert len(calls) == 1
     else:

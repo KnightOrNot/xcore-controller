@@ -7,6 +7,18 @@ CR7 保持六轴接口。首次完成以下步骤后，每次实验使用文末�
 远程双 D435i 相机可以独立启停，不需要启动跟随，见[相机快速启动](#11-远程双-d435i-相机)。
 后续 AI 协作先阅读 [AGENTS.md](AGENTS.md)，其中记录工程边界、现场配置与当前任务。
 
+## 默认配置
+
+所有可复现的默认参数集中在 [config/default.toml](config/default.toml)：CR7 地址、
+GELLO 串口、远端夹爪/相机主机、跟随限速、记录路径和超时。优先级为
+命令行参数 > 已存在的 `XCORE_*` 环境变量 > TOML > 脚本内置默认值。
+使用 `XCORE_CONFIG=/path/experiment.toml ./scripts/...` 可以选择另一份配置。
+
+五个 submodule 也各自提供 `config/default.toml`，由各自 CLI 的 `--config` 覆盖。
+现场标定、退出姿态、相机 JSON 和数据集仍是 Git 忽略的现场文件，不写入默认配置。
+详见[配置参考](docs/reference/config.md)、[子模块配置](docs/reference/submodule-config.md)
+和[架构说明](docs/index.md)；安装、相机与排障见 [docs/](docs/index.md)。
+
 本仓库的 shell 命令统一位于 `scripts/`，以下命令均从 `xcore-controller` 根目录执行：
 
 | 命令 | 用途 |

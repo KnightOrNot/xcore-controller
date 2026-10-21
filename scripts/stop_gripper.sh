@@ -2,6 +2,20 @@
 # Stop only the remote gripper service, after the follow session has exited.
 set -Eeuo pipefail
 root_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+
+# 默认参数来自 config/default.toml；已存在的 XCORE_* 环境变量优先。
+config_python="$root_dir/xcore-sdk-python/.venv/bin/python"
+[[ -x "$config_python" ]] || config_python="$(command -v python3 || true)"
+if [[ -f "$root_dir/config/default.toml" || -f "$root_dir/tools/config_defaults.py" ]]; then
+    [[ -n "$config_python" ]] || { echo '缺少 Python 3.11+，无法读取 config/default.toml' >&2; exit 1; }
+    config_arguments=("$root_dir/tools/config_defaults.py" --shell)
+    [[ -z "${XCORE_CONFIG:-}" ]] || config_arguments+=(--config "$XCORE_CONFIG")
+    config_shell="$("$config_python" "${config_arguments[@]}")" || {
+        echo '读取 config/default.toml 失败' >&2; exit 1;
+    }
+    eval "$config_shell"
+fi
+
 gripper_host="${XCORE_GRIPPER_HOST:-192.168.2.225}"
 ssh_user="${XCORE_GRIPPER_SSH_USER:-rokae}"
 usage() {
@@ -28,7 +42,8 @@ command -v flock >/dev/null || fail "未安装 flock"
 [[ -d "$root_dir/xcore-sdk-python" ]] || fail "SDK 子模块目录缺失，无法核对跟随锁"
 exec 9>"$root_dir/xcore-sdk-python/.follow.lock"
 flock -n 9 || fail "已有跟随／退出返回任务运行；请先结束实验并等待退出"
-ssh -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=5 \
+ssh -o BatchMode=yes -o StrictHostKeyChecking=yes \
+    -o ConnectTimeout="${XCORE_SSH_CONNECT_TIMEOUT:-5}" \
     "$ssh_user@$gripper_host" \
     'systemctl --user stop xcore-gripper-follow.service && systemctl --user show xcore-gripper-follow.service -p ActiveState -p MainPID' 9>&-
 echo "远端夹爪服务已停止；可用 ./scripts/start_gripper.sh 再次启动。"

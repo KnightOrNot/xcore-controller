@@ -2,6 +2,20 @@
 # Manage remote cameras independently from arm/gripper following.
 set -Eeuo pipefail
 root_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+
+# 默认参数来自 config/default.toml；已存在的 XCORE_* 环境变量优先。
+config_python="$root_dir/xcore-sdk-python/.venv/bin/python"
+[[ -x "$config_python" ]] || config_python="$(command -v python3 || true)"
+if [[ -f "$root_dir/config/default.toml" || -f "$root_dir/tools/config_defaults.py" ]]; then
+    [[ -n "$config_python" ]] || { echo '缺少 Python 3.11+，无法读取 config/default.toml' >&2; exit 1; }
+    config_arguments=("$root_dir/tools/config_defaults.py" --shell)
+    [[ -z "${XCORE_CONFIG:-}" ]] || config_arguments+=(--config "$XCORE_CONFIG")
+    config_shell="$("$config_python" "${config_arguments[@]}")" || {
+        echo '读取 config/default.toml 失败' >&2; exit 1;
+    }
+    eval "$config_shell"
+fi
+
 camera_dir="$root_dir/camera-realsense-d435i"
 camera=all
 action=preview
@@ -56,10 +70,20 @@ else
     command -v uv >/dev/null || { echo '请先安装 uv 并运行 ./scripts/setup.sh' >&2; exit 1; }
     camera_command=(uv run --locked --no-dev --project "$camera_dir" camera-realsense-d435i)
 fi
+snapshot_root="${XCORE_CAMERA_SNAPSHOT_DIR:-captures}"
+[[ "$snapshot_root" == /* ]] || snapshot_root="$root_dir/$snapshot_root"
 result=0
 for selected in "${cameras[@]}"; do
+    camera_options=("${extra[@]}")
+    if [[ "$action" == snapshot ]]; then
+        has_output=false
+        for option in "${camera_options[@]}"; do
+            [[ "$option" != --output && "$option" != --output=* ]] || has_output=true
+        done
+        [[ "$has_output" == true ]] || camera_options+=(--output "$snapshot_root/$selected/$(date +%Y%m%d-%H%M%S-%N)")
+    fi
     echo "==> D435i $selected: $action"
-    if "${camera_command[@]}" "$action" --camera "$selected" "${extra[@]}"; then
+    if "${camera_command[@]}" "$action" --camera "$selected" "${camera_options[@]}"; then
         :
     else
         result=1

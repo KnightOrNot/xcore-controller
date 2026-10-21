@@ -2,6 +2,21 @@
 # Stop remote API processes and close only this project's camera SSH tunnels.
 set -Eeuo pipefail
 scripts_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+root_dir="$(cd -- "$scripts_dir/.." && pwd)"
+
+# 默认参数来自 config/default.toml；已存在的 XCORE_* 环境变量优先。
+config_python="$root_dir/xcore-sdk-python/.venv/bin/python"
+[[ -x "$config_python" ]] || config_python="$(command -v python3 || true)"
+if [[ -f "$root_dir/config/default.toml" || -f "$root_dir/tools/config_defaults.py" ]]; then
+    [[ -n "$config_python" ]] || { echo '缺少 Python 3.11+，无法读取 config/default.toml' >&2; exit 1; }
+    config_arguments=("$root_dir/tools/config_defaults.py" --shell)
+    [[ -z "${XCORE_CONFIG:-}" ]] || config_arguments+=(--config "$XCORE_CONFIG")
+    config_shell="$("$config_python" "${config_arguments[@]}")" || {
+        echo '读取 config/default.toml 失败' >&2; exit 1;
+    }
+    eval "$config_shell"
+fi
+
 camera=all
 ssh_target="${XCORE_CAMERA_SSH_TARGET:-rokae@192.168.2.225}"
 port_options=()
@@ -37,7 +52,8 @@ case "$camera" in
     *) fail "相机必须是 all、cam1 或 cam2" ;;
 esac
 command -v ssh >/dev/null || fail "未安装 SSH 客户端"
-ssh -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=6 \
+ssh -o BatchMode=yes -o StrictHostKeyChecking=yes \
+    -o ConnectTimeout="${XCORE_SSH_CONNECT_TIMEOUT:-5}" \
     "$ssh_target" "systemctl --user stop ${units[*]} && systemctl --user show ${units[*]} -p Id -p ActiveState -p MainPID"
 echo "远端相机服务已停止，正在清理对应本地隧道。"
 bash "$scripts_dir/start_camera.sh" disconnect --camera "$camera" \

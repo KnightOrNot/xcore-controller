@@ -1,0 +1,118 @@
+# CLI 参考
+
+所有 controller 入口位于 `scripts/`，会根据脚本位置解析仓库根目录，因此可以从
+任意工作目录调用。默认参数来自 `config/default.toml`；命令行参数优先。
+
+## controller 脚本
+
+| 命令 | 行为 |
+| --- | --- |
+| `./scripts/setup.sh [--check-only] [--skip-submodules]` | 初始化子模块与五个 Python 环境 |
+| `./scripts/start_gello_follow.sh [选项]` | 只读预览或真实六轴＋夹爪跟随 |
+| `./scripts/start_data_record.sh [选项]` | 跟随并记录从臂反馈，退出后转换 |
+| `./scripts/start_gripper.sh [选项]` | SSH 按需启动远端夹爪服务；`--status` 只读 |
+| `./scripts/stop_gripper.sh` | 完全停止远端夹爪服务（跟随锁占用时拒绝） |
+| `./scripts/start_camera.sh [preview|connect|start|stop|status|info|snapshot|disconnect]` | 双 D435i 管理 |
+| `./scripts/stop_camera.sh [--camera all|cam1|cam2]` | 停止远端相机 API 并清理隧道 |
+
+### start_gello_follow.sh
+
+默认不授权运动。关键参数：
+
+| 参数 | 默认值 / 用途 |
+| --- | --- |
+| `--show-state` | 只读打印每个周期的状态 |
+| `--enable-motion` | 显式授权真实跟随（需现场确认） |
+| `--arm-only` | 只跟随六轴，不连接夹爪 |
+| `--max-speed-deg` | `config` 中 `robot.follow_max_speed_deg`，上限 75 |
+| `--prepare-speed` | 启动对齐 SDK 速度参数（mm/s），默认 4000 |
+| `--return-pose-file` | 退出返回姿态，默认 `xcore-sdk-python/config/exit_pose.json` |
+| `--no-return` | 禁止退出返回运动 |
+
+### start_data_record.sh
+
+| 参数 | 默认值 / 用途 |
+| --- | --- |
+| `--task TEXT` | `recording.task`，非空 |
+| `--dataset-fps N` | `recording.dataset_fps`，默认 30 |
+| `--raw-data-root PATH` | `recording.raw_data_root` |
+| `--lerobot-data-root PATH` | `recording.lerobot_data_root` |
+| `--skip-conversion` | 只保存 raw |
+| `--gripper-host HOST` | 远端夹爪主机 |
+| `--start-recording` | 对齐后立即开始 episode |
+
+R 开始、S 保存、D 丢弃、P 状态、H 帮助。未保存片段保留 `.partial`。
+其余跟随参数原样传给统一入口。
+
+### start_gripper.sh / stop_gripper.sh
+
+- `--status` 只读检查 TCP 服务，不启动或重启。
+- `--restart` 会先确认没有跟随任务，再重启远端服务；重启可能激活夹爪。
+- `--reset-stream` 清除断流超时锁定；`--local --serial-port PATH` 使用本机串口。
+- stop 持有与跟随相同的 `.follow.lock`；跟随运行时拒绝停止。
+
+## SDK CLI
+
+```bash
+uv run --project xcore-sdk-python xcore --help
+uv run --project xcore-sdk-python xcore status --config config/experiment.toml
+```
+
+主要命令：
+
+| 命令 | 行为 |
+| --- | --- |
+| `doctor` | 离线检查 Python、SDK 二进制和 API；不连接硬件 |
+| `status` / `info` / `joints` / `limits` / `monitor` | 只读反馈 |
+| `follow-server` / `follow` | 跟随服务与主臂客户端 |
+| `follow-prepare` / `return-pose` | 启动对齐与退出返回 |
+| `follow-check` / `follow-calibrate` | 只读检查与现场标定 |
+| `movej` / `move-joint` | 有界关节运动（需显式调用） |
+| `network check|configure|reset` | 有线网络诊断与临时地址 |
+| `gripper-check` | 只读夹爪反馈 |
+
+全局选项包括 `--ip`、`--local-ip`、`--timeout`、`--sdk-dir`、`--config`。
+`--config` 可放在子命令前或后。
+
+## 夹爪 CLI
+
+```bash
+uv run --project xcore-gripper-2F85 xcore-gripper-2f85 --config config/default.toml status
+uv run --project xcore-gripper-2F85 xcore-gripper-2f85 move --closure 0.4
+```
+
+位置约定：`pos=0` 全开，`pos=255` 全闭；`closure=1` 全闭。服务端：
+
+```bash
+xcore-gripper-2f85-server --config config/default.toml
+```
+
+`--config` 是 TOML 默认值文件；`--serial-port` 显式指定 RS485 串口，
+空值表示自动检测。
+
+## 转换器
+
+```bash
+lerobot-converter/.venv/bin/python tools/convert_cr7.py SESSION OUTPUT \
+  --repo-id local/demo --fps 30
+lerobot-converter/.venv/bin/python -m lerobot_converter SESSION OUTPUT --config config/default.toml
+```
+
+controller 的 `start_data_record.sh` 会自动调用 CR7 适配转换脚本；转换失败
+不影响已保存的 raw。
+
+## 相机 CLI
+
+```bash
+camera-realsense-d435i --camera cam2 status
+camera-realsense-d435i --camera cam2 snapshot --output captures/cam2/demo
+camera-realsense-d435i serve --config ~/.config/camera-realsense-d435i/cam2.json --port 8087
+```
+
+`--defaults PATH` 选择相机项目的 TOML 默认值文件；serve 的 `--config` 仍是
+每台相机的现场 JSON，不与 TOML 默认值混用。
+
+## 退出码
+
+正常完成、人工取消且清理完成返回 0；应用或清理错误返回 1；参数语法错误返回 2；
+非托管操作被中断返回 130。转换子进程的失败码原样返回。

@@ -1,0 +1,48 @@
+# xcore-controller 默认参数。
+#
+# 优先级：命令行参数 > 环境变量（XCORE_*）> 本文件 > 脚本内置默认值。
+# 脚本通过 tools/config_defaults.py 读取本文件；显式 TOML 可用 XCORE_CONFIG 覆盖。
+# 相对路径相对于仓库根目录解析，不依赖调用时的当前目录。
+# 现场标定、退出姿态和数据集不写入本文件，仍使用各自的 Git 忽略文件。
+
+[robot]
+# CR7 控制器地址。与 Linux 服务机（192.168.2.225）不是同一台设备。
+ip = "192.168.2.160"
+# 六轴实时跟随的软件速度上限，单位 °/s；SDK 允许的最大值为 75。
+follow_max_speed_deg = 75
+# 启动对齐使用的 SDK 速度参数（mm/s），不是轴速度。
+prepare_speed = 4000
+
+[gello]
+port = "/dev/serial/by-id/usb-FTDI_USB__-__Serial_Converter_FTB4C7PQ-if00-port0"
+
+[remote]
+# 运行夹爪服务的 Linux 主机；夹爪串口接在该主机上。
+gripper_host = "192.168.2.225"
+gripper_ssh_user = "rokae"
+gripper_port = 5005
+# 两台 D435i 所在主机；本地通过 SSH 隧道访问远端 loopback。
+camera_ssh_target = "rokae@192.168.2.225"
+
+[camera]
+# 本地截图目录；端口与设备 profile 由相机项目自己的 config/default.toml 管理。
+snapshot_dir = "captures"
+
+[recording]
+raw_data_root = "data/raw"
+lerobot_data_root = "data/lerobot"
+dataset_fps = 30
+convert = true
+task = "CR7 GELLO teleoperation"
+
+[paths]
+sdk_project = "xcore-sdk-python"
+gello_project = "xcore-gello-software"
+gripper_project = "xcore-gripper-2F85"
+converter_project = "lerobot-converter"
+camera_project = "camera-realsense-d435i"
+
+[timeouts]
+# SSH 连接与远端服务操作的超时，秒。
+ssh_connect_s = 5
+gripper_ready_s = 15

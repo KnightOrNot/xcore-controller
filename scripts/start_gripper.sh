@@ -1,6 +1,20 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 root_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+
+# 默认参数来自 config/default.toml；已存在的 XCORE_* 环境变量优先。
+config_python="$root_dir/xcore-sdk-python/.venv/bin/python"
+[[ -x "$config_python" ]] || config_python="$(command -v python3 || true)"
+if [[ -f "$root_dir/config/default.toml" || -f "$root_dir/tools/config_defaults.py" ]]; then
+    [[ -n "$config_python" ]] || { echo '缺少 Python 3.11+，无法读取 config/default.toml' >&2; exit 1; }
+    config_arguments=("$root_dir/tools/config_defaults.py" --shell)
+    [[ -z "${XCORE_CONFIG:-}" ]] || config_arguments+=(--config "$XCORE_CONFIG")
+    config_shell="$("$config_python" "${config_arguments[@]}")" || {
+        echo '读取 config/default.toml 失败' >&2; exit 1;
+    }
+    eval "$config_shell"
+fi
+
 gripper_host="${XCORE_GRIPPER_HOST:-192.168.2.225}"
 ssh_user="${XCORE_GRIPPER_SSH_USER:-rokae}"
 action=start
@@ -69,20 +83,22 @@ fi
 if [[ "$action" != status ]]; then
     command -v ssh >/dev/null || fail "未安装 SSH 客户端"
     echo "远端夹爪：$gripper_host:5005，服务操作：$action"
-    ssh -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=5 \
+    ssh -o BatchMode=yes -o StrictHostKeyChecking=yes \
+        -o ConnectTimeout="${XCORE_SSH_CONNECT_TIMEOUT:-5}" \
         "$ssh_user@$gripper_host" "systemctl --user $action xcore-gripper-follow.service" 9>&-
 fi
 
-"$python" - "$gripper_host" "$reset_stream" "$action" "$root_dir/xcore-sdk-python/.follow.lock" 9>&- <<'PY'
+"$python" - "$gripper_host" "${XCORE_GRIPPER_PORT:-5005}" "$reset_stream" "$action" \
+    "$root_dir/xcore-sdk-python/.follow.lock" "${XCORE_GRIPPER_READY_TIMEOUT:-15}" 9>&- <<'PY'
 import fcntl
 import json
 import sys
 import time
 from xcore_sdk_python.gripper_follow import GripperFollowClient, GripperStreamFault
 
-host, reset, action, lock_path = sys.argv[1:]
-client = GripperFollowClient(host, 5005, 1)
-deadline = time.monotonic() + (15 if action != "status" else 0)
+host, port, reset, action, lock_path, ready_timeout = sys.argv[1:]
+client = GripperFollowClient(host, int(port), 1)
+deadline = time.monotonic() + (float(ready_timeout) if action != "status" else 0)
 
 def stop_idle_stream():
     with open(lock_path, "a") as lock:

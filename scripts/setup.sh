@@ -29,9 +29,15 @@ if [[ "$check_only" == false && "$skip_submodules" == false ]]; then
     git -C "$root_dir" submodule sync
     git -C "$root_dir" submodule update --init
 fi
+[[ -f "$root_dir/config/default.toml" ]] || {
+    echo "缺少 controller 默认配置：config/default.toml" >&2; exit 1
+}
 for project in xcore-sdk-python xcore-gello-software xcore-gripper-2F85 lerobot-converter camera-realsense-d435i; do
     project_dir="$root_dir/$project"
     [[ -f "$project_dir/.python-version" ]] || { echo "子模块尚未初始化：$project" >&2; exit 1; }
+    [[ -f "$project_dir/config/default.toml" ]] || {
+        echo "缺少默认配置：$project/config/default.toml" >&2; exit 1
+    }
     requested="$(tr -d '\r\n' < "$project_dir/.python-version")"
     resolved="$(pyenv latest -k "$requested")"
     python_path="$(PYENV_VERSION="$resolved" pyenv which python)"

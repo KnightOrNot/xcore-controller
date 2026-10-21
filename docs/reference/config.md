@@ -1,0 +1,110 @@
+# 配置参考
+
+controller 默认配置位于 [config/default.toml](../../config/default.toml)。
+脚本通过 `tools/config_defaults.py` 读取；优先级为：
+
+```text
+显式命令行参数 > 已存在的 XCORE_* 环境变量 > config/default.toml > 脚本内置默认值
+```
+
+用 `XCORE_CONFIG=/path/experiment.toml ./scripts/...` 选择另一份 TOML。
+未知表、未知字段、非法端口或非正的数值会在执行任何硬件操作前拒绝。
+
+## robot
+
+```toml
+[robot]
+ip = "192.168.2.160"
+follow_max_speed_deg = 75
+prepare_speed = 4000
+```
+
+- `ip`：CR7 控制器地址，不是 Linux 服务机。
+- `follow_max_speed_deg`：六轴实时跟随软件限速，必须 `0 < v <= 75`。
+- `prepare_speed`：启动对齐的 SDK 速度参数（mm/s），与轴速度不是同一量纲。
+
+## gello
+
+```toml
+[gello]
+port = "/dev/serial/by-id/usb-FTDI_USB__-__Serial_Converter_FTB4C7PQ-if00-port0"
+```
+
+串口是现场值，换机器后必须重新核实。现场标定仍放在
+`xcore-sdk-python/config/cr7_calib.json`，不写入本文件。
+
+## remote
+
+```toml
+[remote]
+gripper_host = "192.168.2.225"
+gripper_ssh_user = "rokae"
+gripper_port = 5005
+camera_ssh_target = "rokae@192.168.2.225"
+```
+
+分别对应 `XCORE_GRIPPER_HOST`、`XCORE_GRIPPER_SSH_USER`、`XCORE_GRIPPER_PORT`
+和 `XCORE_CAMERA_SSH_TARGET`。SSH 凭据通过已有密钥提供，不写入配置。
+
+## camera
+
+```toml
+[camera]
+snapshot_dir = "captures"
+```
+
+本地截图根目录；最终路径为 `<snapshot_dir>/<cam1|cam2>/<时间戳>/`。
+相机端口、设备 profile 和 serve 默认值属于相机项目自己的
+`camera-realsense-d435i/config/default.toml`。
+
+## recording
+
+```toml
+[recording]
+raw_data_root = "data/raw"
+lerobot_data_root = "data/lerobot"
+dataset_fps = 30
+convert = true
+task = "CR7 GELLO teleoperation"
+```
+
+相对路径基于仓库根目录。`dataset_fps` 是转换后的数据集频率，不是控制频率；
+`convert=false` 等价于 `--skip-conversion`。
+
+## paths
+
+```toml
+[paths]
+sdk_project = "xcore-sdk-python"
+gello_project = "xcore-gello-software"
+gripper_project = "xcore-gripper-2F85"
+converter_project = "lerobot-converter"
+camera_project = "camera-realsense-d435i"
+```
+
+用于文档和工具解析；脚本仍以实际 submodule 目录为准。
+
+## timeouts
+
+```toml
+[timeouts]
+ssh_connect_s = 5
+gripper_ready_s = 15
+```
+
+分别对应 `XCORE_SSH_CONNECT_TIMEOUT` 和 `XCORE_GRIPPER_READY_TIMEOUT`。
+
+## 自定义实验
+
+```bash
+cp config/default.toml config/experiment.toml
+XCORE_CONFIG=config/experiment.toml python3 tools/config_defaults.py --json
+XCORE_CONFIG=config/experiment.toml ./scripts/start_gello_follow.sh --show-state
+```
+
+修改设备地址或限速后，先做只读检查，再进行真机运动验证。
+
+## 子模块配置
+
+各 submodule 有自己的 `config/default.toml`，见
+[子模块配置](submodule-config.md)。

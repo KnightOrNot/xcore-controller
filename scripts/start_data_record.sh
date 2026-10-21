@@ -2,11 +2,27 @@
 # Record through the existing single-reader follow launcher, then convert offline.
 set -Eeuo pipefail
 root_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
-raw_root="$root_dir/data/raw"
-dataset_root="$root_dir/data/lerobot"
-dataset_fps=30
-convert=true
-task="CR7 GELLO teleoperation"
+
+# 默认参数来自 config/default.toml；已存在的 XCORE_* 环境变量优先。
+config_python="$root_dir/xcore-sdk-python/.venv/bin/python"
+[[ -x "$config_python" ]] || config_python="$(command -v python3 || true)"
+if [[ -f "$root_dir/config/default.toml" || -f "$root_dir/tools/config_defaults.py" ]]; then
+    [[ -n "$config_python" ]] || { echo '缺少 Python 3.11+，无法读取 config/default.toml' >&2; exit 1; }
+    config_arguments=("$root_dir/tools/config_defaults.py" --shell)
+    [[ -z "${XCORE_CONFIG:-}" ]] || config_arguments+=(--config "$XCORE_CONFIG")
+    config_shell="$("$config_python" "${config_arguments[@]}")" || {
+        echo '读取 config/default.toml 失败' >&2; exit 1;
+    }
+    eval "$config_shell"
+fi
+
+raw_root="${XCORE_RAW_DATA_ROOT:-data/raw}"
+[[ "$raw_root" == /* ]] || raw_root="$root_dir/$raw_root"
+dataset_root="${XCORE_LEROBOT_DATA_ROOT:-data/lerobot}"
+[[ "$dataset_root" == /* ]] || dataset_root="$root_dir/$dataset_root"
+dataset_fps="${XCORE_DATASET_FPS:-30}"
+convert="${XCORE_CONVERT:-true}"
+task="${XCORE_TASK:-CR7 GELLO teleoperation}"
 gripper_host="${XCORE_GRIPPER_HOST:-192.168.2.225}"
 follow_options=()
 follow_pid=""

@@ -2,7 +2,8 @@
 
 本文用于让后续 AI 接手工程。先阅读本文、`README.md` 和将要修改的子项目文档；
 以代码、现场配置和实际测试结果为准，不能将历史日志或计划当作已验收功能。
-最后更新：2026-10-21。双相机第一版已部署并通过硬件采集测试，验收边界见文末。
+最后更新：2026-10-21。默认参数已统一到各项目的 `config/default.toml`，文档结构对齐
+agilex；双相机第一版已部署并通过硬件采集测试，验收边界与本次交接见文末。
 
 ## 用户目标和工程边界
 
@@ -21,14 +22,22 @@
 ```text
 xcore/
 ├── xcore-controller/              # 集成仓库：脚本、文档、工具、测试、submodule 指针
+│   ├── config/default.toml        # controller 默认参数（唯一来源）
+│   ├── docs/                      # 架构、安装、相机、CLI/配置/排障
 │   ├── scripts/                  # 所有 controller shell 命令：setup/start/stop
+│   ├── tools/                     # config_defaults.py、convert_cr7.py
+│   ├── tests/                     # 父仓库离线测试
 │   ├── xcore-sdk-python/          # CR7 SDK 封装、RT 跟随、记录；独立 Git 子模块
 │   ├── xcore-gello-software/      # GELLO 只读采集和标定支持；独立 Git 子模块
 │   ├── xcore-gripper-2F85/        # 夹爪驱动、协议、服务源码；独立 Git 子模块
 │   ├── lerobot-converter/         # 独立转换环境；独立 Git 子模块
-│   └── camera-realsense-d435i/    # 新增独立相机仓库的 submodule
+│   └── camera-realsense-d435i/    # 独立相机仓库的 submodule
 └── camera-realsense-d435i/        # 独立相机开发 checkout
 ```
+
+五个 submodule 都遵循同一结构：`config/default.toml`、`docs/`、
+`docs/reference/{cli,config,errors}.md`、`CONTRIBUTING.md`、`CHANGELOG.md`。
+源码包的 `default.toml` 是指向仓库配置的符号链接。
 
 父目录还可能有 SDK、GELLO 等其他独立 checkout；修改前核实 `pwd`、Git 根目录和远端，
 不要误改同名副本。当前集成运行使用 `xcore-controller/` 内的子模块。
@@ -42,6 +51,24 @@ xcore/
 用户仅要求 commit 时不自动 push。正常部署使用固定版本，
 不要随意 `submodule update --remote`。强推只有当次明确授权才执行。
 不要把密码、SSH 私钥、相机画面、现场标定、数据集或 `.venv` 提交到 Git。
+
+## 默认配置与文档约定
+
+- controller 与五个 submodule 各自有 `config/default.toml`，默认参数只写在这里；
+  不要再在代码或 shell 中复制第二份默认值。
+- 优先级：显式命令行参数 > 已存在的 `XCORE_*` / `GRIPPER_*` 环境变量 >
+  TOML > 内置默认值。controller 用 `XCORE_CONFIG` 选择另一份配置。
+- controller 脚本通过 `tools/config_defaults.py` 读取，不解析 TOML 文本。
+- 各包的 `src/<package>/default.toml`（GELLO 为
+  `xcore_gello_software/default.toml`）指向仓库配置，避免安装后出现第二份。
+- 现场标定、退出姿态、相机 JSON、数据集和日志仍使用 Git 忽略文件，
+  不写入 `default.toml`。
+- 文档骨架与相邻 agilex 项目一致：根目录 `README.md`、`CHANGELOG.md`、
+  `CONTRIBUTING.md`、`THIRD_PARTY_NOTICES.md`（controller 还有 `AGENTS.md`），
+  以及 `docs/index.md`、`docs/installation.md`、
+  `docs/reference/{cli,config,errors}.md`；相机和 controller 另有
+  `docs/cameras.md` / `docs/stream.md`，controller 还有
+  `docs/reference/submodule-config.md`。
 
 ## 当前现场连接
 
@@ -57,6 +84,11 @@ xcore/
 
 地址和串口是当前现场值，不保证换机器后成立。SSH 凭据通过已有密钥／用户提供方式获取，
 不在本文保存。远端 `~/project/` 是用户要求的项目根目录。
+
+2026-10-21 巡检：远端**没有检测到夹爪 RS485 适配器**
+（`/dev/serial/by-id/` 不存在，`lsusb` 无 FTDI 设备），
+`xcore-gripper-follow.service` 曾因串口缺失处于 `auto-restart`。硬件恢复前应保持该
+unit 停止，不要通过反复重启或改用其他串口“修复”，也不要为相机开发顺带处理夹爪。
 
 ## 已有跟随与夹爪功能
 
@@ -119,9 +151,13 @@ cam1/cam2 分别使用 8086/8087；本地页面为 `http://127.0.0.1:8086` 和
 **枚举支持不代表两台能同时达到任意帧率**。目前已验证两台同时 640×480、15fps；
 10 秒内每台缓存均推进 150 帧，四路 RGB／深度 MJPEG 均收到有效 JPEG。
 本地客户端使用标准库，不要求本机连接相机或安装 RealSense SDK。
+2026-10-21 巡检：cam1 固件 5.17.3.10，cam2 固件 5.15.1.55（未升级）；
+两台挂在同一个 USB 2.0 Hub（480 Mbps）下，带宽共享。
 
-数据语义：预览深度伪彩 JPEG 仅用于查看，截图另存原始 Z16 无损 16 位 PNG、
-depth scale、各流内参、外参、独立帧号和时间戳及 timestamp domain。
+数据语义：预览深度伪彩 JPEG 仅用于查看。本地 `snapshot` 解压后的目录包含
+`color.jpg`（当前 JPEG 质量，**不是**无损 RGB）、`depth.png`（原始 Z16
+无损 16 位 PNG）和 `metadata.json`（depth scale、各流内参、外参、独立帧号、
+时间戳及 timestamp domain）。不要把 `color.jpg` 当作无损原图。
 默认保留原生深度视角；没有显式对齐时，不能直接将 RGB 同像素与深度一一对应。
 设备时间与主机 monotonic 时间不得混用；当前远程预览不是双机硬同步或与机械臂同步采集。
 导入模块、`--help`、客户端状态查询不得隐式打开本机相机。
@@ -152,11 +188,18 @@ depth scale、各流内参、外参、独立帧号和时间戳及 timestamp doma
 ## 验证和交接规则
 
 - 离线安装入口 `./scripts/setup.sh --skip-submodules`；`./scripts/setup.sh --check-only` 不连接硬件。
-  集成安装脚本的子模块数量需随相机接入更新。
+  setup 会检查 controller 与五个 submodule 的 `config/default.toml` 是否存在。
 - 根据修改范围运行父仓库／相应子模块 pytest 和 Ruff，不要为检查文档而启动硬件。
   SDK 离线检查为 `uv run --project xcore-sdk-python xcore doctor`。
   父仓库测试使用 `./lerobot-converter/.venv/bin/python -m pytest tests -q`，
   其中转换测试需要转换项目依赖，不能直接拿缺少该包的 SDK 环境运行全部父仓库测试。
+  各子项目在其目录内运行：SDK `uv run --project . pytest -q`；夹爪和相机
+  `uv run --project . --with pytest --with ruff pytest -q`；转换器
+  `./.venv/bin/python -m pytest -q`。
+- 修改配置加载后至少运行 `python3 tools/config_defaults.py --json`、对应项目的配置测试
+  和 `--help`；这些检查不得打开串口、连接 CR7 或启动相机。
+- 新增参数先写入对应项目的 `config/default.toml`；不要在脚本和代码里保留第二份默认值。
+  显式 CLI 参数优先，已存在的环境变量优先于文件。
 - 不在现有跟随会话运行时发起另一个 SDK 连接；不要自动发起运动测试。
 - 相机测试至少覆盖启动／停止／重启、断流与异常传播、原始深度格式、双机同时预览。
   实测帧率、USB 模式、截图和测试结果写入相机 README；未测试项明确标记。
@@ -165,7 +208,7 @@ depth scale、各流内参、外参、独立帧号和时间戳及 timestamp doma
   排除现场配置／数据，再按子仓库到父仓库的顺序提交。
 - 功能或部署状态变化后更新本文，写清“代码已实现”“离线测试通过”“硬件已实测”的区别。
 
-**本次交接状态**：相机项目已推送到新仓库 main，提交
+**相机交接状态（历史记录，2026-10-21）**：相机项目已推送到新仓库 main，提交
 `49b6293`，父仓库已引用同版本 submodule。
 `scripts/start_camera.sh`、五环境 `scripts/setup.sh` 和 README 已接入。
 相机离线 pytest 10 项通过，Ruff 检查及格式检查通过；五个子项目的环境入口检查通过。
@@ -198,6 +241,11 @@ depth scale、各流内参、外参、独立帧号和时间戳及 timestamp doma
 五个原入口已迁移，脚本都根据自身位置解析仓库根目录，支持从其他工作目录调用。
 子模块拥有的脚本保留在各自仓库，不能跨 Git 边界搬动。
 
+脚本默认值来自 `config/default.toml`，通过 `tools/config_defaults.py --shell` 读取；
+`XCORE_CONFIG=/path.toml` 可选择另一份配置。已存在的 `XCORE_*` 环境变量优先于文件，
+命令行参数优先于两者。脚本仅在配置和工具均不存在的历史测试夹具中跳过加载。
+若只缺失其中一项，必须报错退出，不能静默使用内置运动参数。
+
 - `scripts/setup.sh`、`scripts/start_gello_follow.sh`、`scripts/start_data_record.sh`。
 - `scripts/start_gripper.sh` 按需启动；`scripts/stop_gripper.sh` 完全停止远端服务。
   后者持有与跟随相同的 `xcore-sdk-python/.follow.lock`；占用时拒绝 SSH stop。
@@ -206,8 +254,52 @@ depth scale、各流内参、外参、独立帧号和时间戳及 timestamp doma
   远端 stop 失败时保留隧道，不假装成功。
 - 停止入口的验证使用隔离的 SSH／CLI stub，不应为了测试脚本而终止用户正在使用的服务。
 
-本次迁移验证：父仓库 34 项离线测试通过，新增测试覆盖夹爪占锁拒绝停止、
+脚本迁移时的验证（历史记录）：父仓库 34 项离线测试通过，新增测试覆盖夹爪占锁拒绝停止、
 相机单台／双台选择、SSH 失败时保留隧道及非法参数在 SSH 前拒绝；
 七个脚本的 shell 语法和帮助通过，五环境检查通过。未执行真实远端 stop。
 SDK 完整离线测试 200 项通过，Ruff 检查通过；controller 离线测试 34 项通过。
 这些结果不替代现场运动验收，本次提交过程中未连接或操作机械臂。
+
+## 配置与文档改造交接（2026-10-21）
+
+已完成并通过审查：
+
+- controller 与五个 submodule 均新增 `config/default.toml`、配置加载模块和覆盖入口：
+  SDK/夹爪/转换器用 `--config`，相机用 `--defaults`（`serve --config` 仍是现场 JSON），
+  GELLO 用 `XCORE_GELLO_CONFIG`。
+- controller 新增 `tools/config_defaults.py`；七个 shell 入口读取 TOML，
+  `setup.sh --check-only` 校验六份配置文件存在。
+- 文档骨架对齐 agilex：controller 新增 `docs/index.md`、`docs/installation.md`、
+  `docs/cameras.md`、`docs/reference/{cli,config,errors,submodule-config}.md`、
+  `CHANGELOG.md`、`CONTRIBUTING.md`、`THIRD_PARTY_NOTICES.md`；五个 submodule
+  补齐 `docs/` 和根文档，README 增加配置与文档入口。
+- 现场文件仍不进入 Git：`cr7_calib.json`、`exit_pose.json`、远端 `camN.json`、
+  数据集、日志、截图。
+
+验证结果（全部离线，未连接机械臂、未启动相机采集、未操作夹爪）：
+
+| 范围 | 结果 |
+| --- | --- |
+| SDK | 214 passed；Ruff 和格式检查通过 |
+| controller | 53 passed |
+| 夹爪 | 45 passed + 6 subtests |
+| 转换器 | 7 passed |
+| 相机 | 18 passed |
+| GELLO | 16 passed（`tests/`，不包含未使用的 ROS2 工程） |
+| 其他 | 五个 wheel 均包含默认配置；SDK sdist 包含配置；Python 3.8 GELLO、Python 3.10 GELLO/夹爪配置导入通过；配置工具、脚本帮助、`xcore doctor` 和变更文档链接检查通过 |
+
+审查修复：
+
+- 默认截图采用每次独立时间戳目录，重复调用不因目录已存在失败。
+- controller 配置的夹爪端口传入 SDK 跟随入口，显式 CLI 仍优先。
+- 直接 SDK 准备／返回命令保持历史默认 1000 mm/s；controller 仍按其配置显式传入速度（当前 4000 mm/s）。
+- GELLO Python 3.8–3.10、夹爪 Python 3.9/3.10 使用条件依赖 tomli，保持原声明兼容性。
+- SDK 的 --config、相机的 --defaults 支持子命令前后；拒绝非法配置类型、端口、非有限数值，检查 shell 环境覆盖值。
+- 配置或工具单独缺失时在设备操作前报错；第三方说明不自行声明未知的厂商再分发禁令。
+
+本轮本地离线测试合计 353 项及 6 个 subtests。用户已授权本轮 commit 与 push；
+顺序是先五个 submodule，再更新父仓库指针并提交／推送 controller。
+未执行远端部署或真机操作，相机和夹爪的现场硬件状态未因本次审查改变。
+
+尚需人工验收：真实跟随、退出返回、夹爪实际开合、相机页面排版与按钮交互。
+夹爪 RS485 适配器当前不在远端，硬件恢复前保持 `xcore-gripper-follow.service` 停止。
