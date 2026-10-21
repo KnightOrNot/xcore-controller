@@ -3,3 +3,4 @@ logs/
 _rokae_log_/
 .venv/
 __pycache__/
+captures/

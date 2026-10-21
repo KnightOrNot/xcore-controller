@@ -16,8 +16,9 @@ import pytest
 def launcher(tmp_path):
     root = tmp_path / "controller with spaces"
     root.mkdir()
-    source = Path(__file__).resolve().parents[1] / "start_gripper.sh"
-    shutil.copy(source, root)
+    source = Path(__file__).resolve().parents[1] / "scripts" / "start_gripper.sh"
+    (root / "scripts").mkdir()
+    shutil.copy(source, root / "scripts")
     calls = root / "calls.jsonl"
     binaries = root / "bin"
     binaries.mkdir()
@@ -89,7 +90,7 @@ def launcher(tmp_path):
 def run(launcher, options):
     root, env, path = launcher
     result = subprocess.run(
-        ["bash", str(root / "start_gripper.sh"), *options],
+        ["bash", str(root / "scripts" / "start_gripper.sh"), *options],
         env=env,
         capture_output=True,
         text=True,

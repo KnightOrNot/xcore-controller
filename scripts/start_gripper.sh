@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
-root_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+root_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 gripper_host="${XCORE_GRIPPER_HOST:-192.168.2.225}"
 ssh_user="${XCORE_GRIPPER_SSH_USER:-rokae}"
 action=start
@@ -11,7 +11,7 @@ local_options=()
 
 usage() {
     cat <<'EOF'
-用法：./start_gripper.sh [选项]
+用法：./scripts/start_gripper.sh [选项]
 默认通过 SSH 启动远端 .225 的后台夹爪服务并检查 TCP:5005，不打开本机串口。
 启动时会在确认没有跟随／回零任务后自动清除单纯的断流超时锁定。
   --gripper-host HOST  远端地址，默认 192.168.2.225
@@ -47,7 +47,7 @@ done
 
 if [[ "$local_mode" == true ]]; then
     [[ "$action" == start && "$reset_stream" == false ]] || fail "远端管理参数不能用于本机模式"
-    [[ -n "$serial_port" ]] || fail "本机模式必须指定 --serial-port；当前夹爪在 .225，请直接运行 ./start_gripper.sh"
+    [[ -n "$serial_port" ]] || fail "本机模式必须指定 --serial-port；当前夹爪在 .225，请直接运行 ./scripts/start_gripper.sh"
     [[ -e "$serial_port" ]] || fail "夹爪串口不存在：$serial_port"
     gello_port="${XCORE_GELLO_PORT:-/dev/serial/by-id/usb-FTDI_USB__-__Serial_Converter_FTB4C7PQ-if00-port0}"
     if [[ -e "$gello_port" && "$(readlink -f -- "$serial_port")" == "$(readlink -f -- "$gello_port")" ]]; then
@@ -61,7 +61,7 @@ fi
 [[ "$ssh_user" =~ ^[a-zA-Z_][a-zA-Z0-9_-]*$ ]] || fail "SSH 用户名格式不正确"
 [[ "$action" != status || "$reset_stream" == false ]] || fail "--status 是只读检查，不能与 --reset-stream 同时使用"
 python="$root_dir/xcore-sdk-python/.venv/bin/python"
-[[ -x "$python" ]] || fail "请先运行 ./setup.sh 安装 SDK 环境"
+[[ -x "$python" ]] || fail "请先运行 ./scripts/setup.sh 安装 SDK 环境"
 if [[ "$action" == restart ]]; then
     exec 9>"$root_dir/xcore-sdk-python/.follow.lock"
     flock -n 9 || fail "已有跟随／回零任务运行；先结束实验再重启夹爪服务"
@@ -115,6 +115,6 @@ try:
 except Exception as error:
     print(f"夹爪检查失败：{error}", file=sys.stderr)
     if "stream fault" in str(error):
-        print("先结束统一跟随，再运行 ./start_gripper.sh --reset-stream 清除断流故障。", file=sys.stderr)
+        print("先结束统一跟随，再运行 ./scripts/start_gripper.sh --reset-stream 清除断流故障。", file=sys.stderr)
     sys.exit(1)
 PY

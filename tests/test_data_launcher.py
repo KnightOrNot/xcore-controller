@@ -16,9 +16,10 @@ import pytest
 def launcher(tmp_path):
     root = tmp_path / "controller with spaces"
     root.mkdir()
-    source = Path(__file__).resolve().parents[1] / "start_data_record.sh"
-    shutil.copy(source, root)
-    follow = root / "start_gello_follow.sh"
+    source = Path(__file__).resolve().parents[1] / "scripts" / "start_data_record.sh"
+    (root / "scripts").mkdir()
+    shutil.copy(source, root / "scripts")
+    follow = root / "scripts" / "start_gello_follow.sh"
     child = root / "fake_follow.py"
     child.write_text(
         "import json, os, pathlib, signal, sys, time\n"
@@ -87,7 +88,7 @@ def shlex_quote(value):
 
 def test_fault_waits_for_zero_then_converts_only_saved_data_and_keeps_failure(launcher):
     result = subprocess.run(
-        ["bash", str(launcher / "start_data_record.sh")],
+        ["bash", str(launcher / "scripts" / "start_data_record.sh")],
         env={**os.environ, "FAULT": "1"},
         capture_output=True,
         check=False,
@@ -104,7 +105,7 @@ def test_record_entry_routes_options_and_converts_after_shutdown(launcher):
     result = subprocess.run(
         [
             "bash",
-            str(launcher / "start_data_record.sh"),
+            str(launcher / "scripts" / "start_data_record.sh"),
             "--task",
             "pick object",
             "--gripper-force",
@@ -115,6 +116,8 @@ def test_record_entry_routes_options_and_converts_after_shutdown(launcher):
             "50",
             "--skip-prepare",
             "--show-state",
+            "--return-pose-file",
+            str(launcher / "custom exit pose.json"),
             "--no-return-zero",
         ],
         capture_output=True,
@@ -129,6 +132,9 @@ def test_record_entry_routes_options_and_converts_after_shutdown(launcher):
     assert "--skip-prepare" in args
     assert "--show-state" in args
     assert "--no-return-zero" in args
+    assert args[args.index("--return-pose-file") + 1] == str(
+        launcher / "custom exit pose.json"
+    )
     assert args[args.index("--prepare-speed") + 1] == "50"
     assert args[args.index("--task") + 1] == "pick object"
     conversion = json.loads((launcher / "conversion.json").read_text())
@@ -139,7 +145,7 @@ def test_record_entry_routes_options_and_converts_after_shutdown(launcher):
 def test_skip_or_no_saved_episode_never_converts(launcher, skip, empty):
     options = ["--skip-conversion"] if skip else []
     result = subprocess.run(
-        ["bash", str(launcher / "start_data_record.sh"), *options],
+        ["bash", str(launcher / "scripts" / "start_data_record.sh"), *options],
         env={**os.environ, **({"EMPTY": "1"} if empty else {})},
         capture_output=True,
         check=False,
@@ -157,7 +163,7 @@ def test_interrupt_waits_for_follow_cleanup_before_conversion(
     launcher, interrupt, zero_failure
 ):
     process = subprocess.Popen(
-        ["bash", str(launcher / "start_data_record.sh")],
+        ["bash", str(launcher / "scripts" / "start_data_record.sh")],
         env={
             **os.environ,
             "HOLD": "1",

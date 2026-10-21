@@ -6,7 +6,7 @@ LeRobot 数据集工厂，不修改原入口的格式校验或默认输出。
 
 ## 使用方法
 
-在 `xcore-controller` 使用 `start_data_record.sh` 记录；或手动转换已保存的 raw session：
+在 `xcore-controller` 使用 `scripts/start_data_record.sh` 记录；或手动转换已保存的 raw session：
 
 ```bash
 ./lerobot-converter/.venv/bin/python tools/convert_cr7.py \

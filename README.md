@@ -1,8 +1,29 @@
-# xcore-controller：GELLO → CR7 六轴与夹爪跟随
+# xcore-controller：GELLO → CR7 跟随与远程相机
 
 本指南从 **Ubuntu 24.04、x86_64 的空白控制电脑**开始，完成安装、通信、标定和真机跟随。
 统一客户端读取一次 GELLO，将六轴目标发给 CR7，将扳机目标发给独立 Robotiq 2F-85 服务。
 CR7 保持六轴接口。首次完成以下步骤后，每次实验使用文末的[日常启动命令](#8-日常启动)。
+
+远程双 D435i 相机可以独立启停，不需要启动跟随，见[相机快速启动](#11-远程双-d435i-相机)。
+后续 AI 协作先阅读 [AGENTS.md](AGENTS.md)，其中记录工程边界、现场配置与当前任务。
+
+本仓库的 shell 命令统一位于 `scripts/`，以下命令均从 `xcore-controller` 根目录执行：
+
+| 命令 | 用途 |
+| --- | --- |
+| `./scripts/setup.sh` | 初始化子模块和独立 Python 环境 |
+| `./scripts/start_gello_follow.sh` | 六轴＋夹爪跟随；真实运动需 `--enable-motion` |
+| `./scripts/start_data_record.sh` | 跟随并记录从臂反馈 |
+| `./scripts/start_gripper.sh` | 按需启动远端夹爪服务 |
+| `./scripts/stop_gripper.sh` | 完全停止远端夹爪服务；先结束跟随及退出返回 |
+| `./scripts/start_camera.sh` | 按需启动双相机服务并预览 |
+| `./scripts/stop_camera.sh` | 完全停止双相机远端服务并清理隧道 |
+
+遇到 `J1(+183.5° 限 -180~+180°)` 时，是本地跟随限位拒绝启动，
+不是主臂串口或夹爪网络连接失败。主从对齐误差很小与姿态是否在限位内是两项独立检查。
+准备阶段与 RT 驱动现在共用限位交集，会在准备上电／移动前报告超限关节。
+请先将主臂映射目标和 CR7 当前姿态调整到允许范围内，再重新启动。
+完整范围及处理说明见 [SDK 跟随说明](xcore-sdk-python/README.md#2-预览再启动跟随)。
 
 ## 1. 接线与地址
 
@@ -97,17 +118,17 @@ git -c url."https://github.com/".insteadOf=git@github.com: \
 运行脚本初始化 submodule：
 
 ```bash
-./setup.sh --skip-submodules
-./setup.sh --check-only
+./scripts/setup.sh --skip-submodules
+./scripts/setup.sh --check-only
 ./xcore-sdk-python/.venv/bin/xcore-sdk-python doctor
 ```
 
 如仓库需要访问权限，使用有权限的 GitHub 凭据；已配置 GitHub SSH 的用户也可直接运行
-`./setup.sh`，让脚本初始化子模块。跟随使用 PyPI 的 `dynamixel-sdk`，
+`./scripts/setup.sh`，让脚本初始化子模块。跟随使用 PyPI 的 `dynamixel-sdk`，
 无需额外安装 `third_party/DynamixelSDK/python`，也无需初始化仿真模型的嵌套子模块。
 
-`setup.sh` 安装四个独立环境，包括数据转换依赖，不连接硬件。
-最后应显示“四个子项目的环境与命令入口检查通过”；`doctor` 应返回 `ok: true`、
+`scripts/setup.sh` 安装五个独立环境，包括数据转换及相机客户端，不连接硬件。
+最后应显示“五个子项目的环境与命令入口检查通过”；`doctor` 应返回 `ok: true`、
 `sdk_version: 0.7.1`、`hardware_connected: false`。这里的 `false` 表示离线检查未连接机械臂。
 后续使用顶层 `.sh`，**不需要手动激活 `.venv`**。
 
@@ -200,6 +221,18 @@ test -r "$XCORE_GELLO_PORT" && test -w "$XCORE_GELLO_PORT" && echo "GELLO 串口
 当前 `.225` 系统已安装 `xcore-gripper-follow.service`。若继续使用这台系统，
 只需完成 SSH 登录设置和服务检查，**跳过 5.2 的首次部署**。
 
+2026-10-21 现场项目已迁移到远端 `~/project/xcore-gripper-follow/`。
+`current` 使用相对链接指向 `releases/` 中的部署版本；systemd 的 `WorkingDirectory`
+为 `/home/rokae/project/xcore-gripper-follow/current`，`PYTHONPATH` 为该目录下的 `src`。
+夹爪服务已取消开机／登录自启，由本地 `./scripts/start_gripper.sh` 通过 SSH 按需启动。
+`Linger=yes` 保留，用于启动后在 SSH 断开时继续运行，不会自动启动已 disabled 的服务。
+迁移前的 unit、部署记录、链接和代码校验值备份在远端
+`~/.local/state/xcore-gripper-migrations/20261021T160259+0800/`。
+迁移后已通过服务停止／启动及本机的 `scripts/start_gripper.sh`、`--status`、SDK
+`gripper-check` 检查；没有为此重启整台电脑或测试夹爪开合。
+以后再次移动目录时，应同步修改服务路径并执行 `systemctl --user daemon-reload`；
+先结束跟随与退出返回，再重启夹爪服务，避免引发断流故障。
+
 在夹爪服务电脑的终端执行以下命令启用 SSH；已启用时跳过：
 
 ```bash
@@ -225,19 +258,19 @@ ssh rokae@192.168.2.225 'hostname'
 顶层管理脚本使用非交互 SSH，需密钥登录可用；密钥有口令时先在当前会话用 `ssh-add` 解锁。
 
 ```bash
-./start_gripper.sh
-./start_gripper.sh --status
+./scripts/start_gripper.sh
+./scripts/start_gripper.sh --status
 ```
 
 预期打印“远端夹爪服务已就绪”，有 `streaming: true`、`stream_error: null` 和实际 `position_raw`。
 已有服务不会重启。如果上次退出留下单纯的“目标断流超时”，入口会在取得跟随锁、
-确认没有跟随／回零任务后自动发送 `stop` 清除锁定，再检查反馈；不重新激活或开爪。
+确认没有跟随／退出返回任务后自动发送 `stop` 清除锁定，再检查反馈；不重新激活或开爪。
 `--status` 始终只读。串口、电源等其他故障仍会报错，不自动清除。
 新系统显示“Unit ... not found”时继续执行 5.2。
 
 ### 5.2 新夹爪服务电脑：首次部署
 
-这一节安装支持连续跟随的服务，供顶层 `start_gripper.sh` 管理。
+这一节安装支持连续跟随的服务，供顶层 `scripts/start_gripper.sh` 管理。
 SSH 设置按 5.1 完成；远端需有 `/usr/bin/python3`（Python ≥ 3.9）。
 源码和 `pyserial` 由控制电脑打包传过去，**部署阶段远端无需访问外网或安装 uv/pyenv**。
 
@@ -300,29 +333,27 @@ WantedBy=default.target
 UNIT
 
 systemctl --user daemon-reload
-systemctl --user enable --now xcore-gripper-follow.service
-systemctl --user status xcore-gripper-follow.service --no-pager
-journalctl --user -u xcore-gripper-follow.service -n 30 --no-pager
+systemctl --user disable xcore-gripper-follow.service
 exit
 ```
 
-远端应为 `active (running)`，日志显示监听 `0.0.0.0:5005`。
-这是监听地址，控制电脑仍连接 `192.168.2.225:5005`。
-用户服务默认随账户登录运行；需要未登录也持续运行时，在远端执行
-`sudo loginctl enable-linger "$USER"`。防火墙已启用且阻断连接时，在远端允许控制电脑访问：
+此时只安装服务且保持 disabled，不在远端自动激活夹爪。回到本地执行下一步启动命令后，
+服务应为 `active (running)`，监听 `0.0.0.0:5005`；控制电脑连接 `192.168.2.225:5005`。
+为允许 SSH 断开后用户服务继续运行，在远端执行 `sudo loginctl enable-linger "$USER"`。
+这不会启用设备服务的开机自启。防火墙已启用且阻断连接时，在远端允许控制电脑访问：
 `sudo ufw allow from 192.168.2.100 to any port 5005 proto tcp`。
 
 回到**控制电脑**检查：
 
 ```bash
-./start_gripper.sh
-./start_gripper.sh --status
+./scripts/start_gripper.sh
+./scripts/start_gripper.sh --status
 ```
 
 如果夹爪 USB 实际接在控制电脑，改在一个独立终端运行本机服务并保持终端打开：
 
 ```bash
-./start_gripper.sh --local \
+./scripts/start_gripper.sh --local \
   --serial-port /dev/serial/by-id/usb-FTDI_USB_TO_RS-485_DAAQMP8J-if00-port0
 ```
 
@@ -339,7 +370,7 @@ exit
 夹爪服务先就绪，然后在控制电脑执行：
 
 ```bash
-./start_gello_follow.sh --enable-motion --calibrate-zero
+./scripts/start_gello_follow.sh --enable-motion --calibrate-zero
 ```
 
 输入 `y` 后，脚本把 CR7 六轴移动至 0°，采集 GELLO 偏移并保存标定，随后直接进入六轴与夹爪跟随。
@@ -349,10 +380,10 @@ exit
 已有文件不会覆盖。需要重新标定时指定新文件，并在后续启动中使用同一个路径：
 
 ```bash
-./start_gello_follow.sh --enable-motion --calibrate-zero \
+./scripts/start_gello_follow.sh --enable-motion --calibrate-zero \
   --calib ./xcore-sdk-python/config/cr7_calib_new.json
 # 后续启动
-./start_gello_follow.sh --enable-motion \
+./scripts/start_gello_follow.sh --enable-motion \
   --calib ./xcore-sdk-python/config/cr7_calib_new.json
 ```
 
@@ -376,7 +407,7 @@ exit
 有标定且夹爪服务就绪后执行：
 
 ```bash
-./start_gello_follow.sh --show-state
+./scripts/start_gello_follow.sh --show-state
 ```
 
 不发送六轴或夹爪运动目标。逐轴小幅移动 GELLO，检查映射后的 `leader` 方向和角度；
@@ -392,7 +423,7 @@ exit
 保持 GELLO 在希望从臂到达的姿态，确认运动路径，然后执行：
 
 ```bash
-./start_gello_follow.sh --enable-motion
+./scripts/start_gello_follow.sh --enable-motion
 ```
 
 输入 `y` 后，先用已有标定对齐六轴到 **GELLO 当前姿态**，到位后自动进入跟随。
@@ -414,9 +445,9 @@ exit
 也不能据此认定实际硬件最大速度。当前默认配置采用这两个上限；首次检查可明确降低：
 
 ```bash
-./start_gello_follow.sh --enable-motion --max-speed-deg 10 --prepare-speed 50
+./scripts/start_gello_follow.sh --enable-motion --max-speed-deg 10 --prepare-speed 50
 # 已确认现场范围后，按需要调节实时速度与对齐速度
-./start_gello_follow.sh --enable-motion --max-speed-deg 30 --prepare-speed 1000
+./scripts/start_gello_follow.sh --enable-motion --max-speed-deg 30 --prepare-speed 1000
 ```
 
 每次换参数先 Ctrl+C 结束上一次跟随。命令行优先于环境变量，再优先于脚本默认值。
@@ -424,34 +455,49 @@ exit
 夹爪端点、速度和力度都可通过表中参数覆盖，例如：
 
 ```bash
-./start_gello_follow.sh --enable-motion \
+./scripts/start_gello_follow.sh --enable-motion \
   --gripper-open-deg 194.8 --gripper-close-deg 153 \
   --gripper-open-pos 0 --gripper-closed-pos 230 --gripper-speed 150 --gripper-force 30
 ```
 
-仅测试六轴时运行 `./start_gello_follow.sh --enable-motion --arm-only`，无需夹爪服务。
+仅测试六轴时运行 `./scripts/start_gello_follow.sh --enable-motion --arm-only`，无需夹爪服务。
 `--arm-only` 不能与 `--gripper-host` 同用。
 默认只输出启动、错误及停止信息，需要连续状态时加 `--show-state`。
 
-**结束实验：按 Ctrl+C，等待六轴回到零位后退出。** 脚本先停止跟随和夹爪，
-关闭实时／准备 SDK 会话，再将六轴移到 `[0°, 0°, 0°, 0°, 0°, 0°]`。
-回零沿用 `--prepare-speed`（默认 `4000 mm/s`）和 `--prepare-motion-timeout`
-（默认 `600 s`），完成后恢复回零前的电源状态和模式，夹爪保持停止、不自动开爪。
-开始实验前也要确认回零路径可用；回零期间再次 Ctrl+C 会请求停止回零并等待 SDK 关闭。
-**故障退出也默认尝试回零。** 命令行会显示原始异常、服务端错误，以及控制器最近
-错误／警告的错误码、时间戳、内容和恢复建议；历史日志以时间戳区分。
-脚本先停止六轴／夹爪跟随并关闭记录，释放 SDK 会话，再尝试一次实时故障恢复和回零。
-故障回零完成后下电、切手动模式，不自动重新跟随；原始非零退出码保留。
-急停、安全门、其他非空闲状态、超限、恢复失败或回零中再次触发保护时会停止并报错，
+**结束实验：按 Ctrl+C，等待六轴返回保存姿态后退出。** 脚本先停止跟随和夹爪、
+关闭实时／准备 SDK 会话，再返回 `xcore-sdk-python/config/exit_pose.json` 的六轴绝对角度。
+2026-10-21 16:18:43 通过正在运行的跟随服务读取 CR7 实际反馈，已保存为本机固定退出目标（度）：
+
+```text
+J1          J2         J3          J4        J5          J6
+179.186600  26.419991  -73.511266  5.752057  -78.952135  -0.312863
+```
+
+这组姿态固定保存，不在每次启动时重新采集。现场 JSON 不随 Git 提交，新机器应恢复本机配置，
+或在配置完成前用 `--no-return` 禁用退出运动。可用 `--return-pose-file PATH`／`XCORE_EXIT_POSE`
+覆盖文件；文件包含 `schema_version: 1`、匹配的 `robot_ip` 和六个有限 `joints_rad`。
+开启自动返回时，缺失或无效文件会在连接设备前拒绝启动。每次会话保存独立的
+`logs/follow-*/exit_pose.json` 快照，退出时使用该快照；结果保存为 `return-pose.json`。
+返回速度与等待时间沿用 `--prepare-speed`（默认 `4000 mm/s`）和 `--prepare-motion-timeout`
+（默认 `600 s`）；完成后恢复返回前的电源状态和模式。夹爪保持停止，不自动开爪。
+确认返回路径可用；返回期间再次 Ctrl+C 会请求停止并等待 SDK 关闭。
+
+**故障退出也默认尝试返回该姿态。** 先停止跟随并关闭记录、释放 SDK，再尝试一次实时故障恢复。
+故障返回完成后下电、切手动模式，不自动重启跟随，保留原始非零退出码。
+急停、安全门、其他非空闲状态、超限、恢复失败或再次触发保护时停止并报错，
 不自动复位急停、不关闭碰撞检测、不循环尝试恢复。
-只读预览、SIGTERM 和强制终止 SDK 子进程不执行回零。
-不要在跟随或回零期间另开 SDK 查询／控制会话。
-仅希望停止并保持当前姿态时，启动命令加 `--no-return-zero`：
+只读预览、SIGTERM 和强制终止 SDK 子进程不执行返回；返回期间不要另开 SDK 会话。
+仅希望停止并保持当前姿态时，使用 `--no-return`（旧 `--no-return-zero` 仍兼容）：
 
 ```bash
-./start_gello_follow.sh --enable-motion --no-return-zero
-./start_data_record.sh --task "pick up the object" --no-return-zero
+./scripts/start_gello_follow.sh --enable-motion --no-return
+./scripts/start_data_record.sh --task "pick up the object" --no-return
 ```
+
+独立 SDK 命令为 `uv run --project xcore-sdk-python xcore-sdk-python return-pose`。
+如需六轴真正全零，必须显式使用 `return-pose --zero`。已运行的旧启动器使用
+`return-zero` 兼容入口，也会读取已保存的默认退出姿态；该旧进程的终端文案可能仍写“回零”。
+
 紧急情况使用设备硬件急停；终端退出不能替代硬件急停。
 
 ## 8. 日常启动
@@ -464,14 +510,14 @@ cd "$HOME/projects/xcore/xcore-controller"
 export XCORE_GELLO_PORT=/dev/serial/by-id/usb-FTDI_USB__-__Serial_Converter_FTB4C7PQ-if00-port0
 
 # 1. 启动并检查远端夹爪服务；已有服务不重启
-./start_gripper.sh
+./scripts/start_gripper.sh
 
 # 2. 可选：只读查看六轴／扳机；结束后按 Ctrl+C
-./start_gello_follow.sh --show-state
+./scripts/start_gello_follow.sh --show-state
 
 # 3. 主臂保持期望姿态；输入 y，等待对齐完成再移动主臂
-./start_gello_follow.sh --enable-motion
-# 实验结束按 Ctrl+C，等待从臂六轴回零并退出
+./scripts/start_gello_follow.sh --enable-motion
+# 实验结束按 Ctrl+C，等待从臂六轴返回保存姿态并退出
 ```
 
 远端地址或账户变化时，在同一终端设置
@@ -493,19 +539,28 @@ export XCORE_GELLO_PORT=/dev/serial/by-id/usb-FTDI_USB__-__Serial_Converter_FTB4
 | `Unit ... not found` | 新远端尚未部署用户服务，执行 5.2；服务属于部署时使用的那个账户 |
 | 夹爪服务不支持 streaming | 旧 demo 只有 open/close/move，需部署本项目服务，支持 follow_status/set_target/stop |
 | Modbus 回复长度不足／旧服务 `IndexError` | 确认夹爪电源、RS485 接线、真实夹爪串口；本机 GELLO FTDI 不能当 Robotiq 串口 |
-| `Gripper target stream timed out` | 等跟随／回零退出，再执行 `./start_gripper.sh` 自动清除超时锁定；`--status` 仅查看，`--reset-stream` 可手动清除 |
+| `Gripper target stream timed out` | 等跟随／退出返回退出，再执行 `./scripts/start_gripper.sh` 自动清除超时锁定；`--status` 仅查看，`--reset-stream` 可手动清除 |
 | 对齐失败／主臂移动／超限 | 保持主臂静止，核对标定、目标和示教器；准备每轴最大跨度 180°，到位等待 600 s；失败后检查实际姿态再重试 |
 | “已有跟随启动流程正在运行” | 结束上一跟随／记录进程，等待退出；不要同时启动两个入口 |
 
 夹爪故障排查命令（在控制电脑执行）：
 
 ```bash
-./start_gripper.sh --status
+./scripts/start_gripper.sh --status
 ssh rokae@192.168.2.225 'systemctl --user status xcore-gripper-follow.service --no-pager'
 ssh rokae@192.168.2.225 'journalctl --user -u xcore-gripper-follow.service -n 50 --no-pager'
 # 先结束跟随；需要重启时执行（重启会激活夹爪）
-./start_gripper.sh --restart
+./scripts/start_gripper.sh --restart
 ```
+
+实验结束并等待退出返回完成后，可完全停止夹爪服务：
+
+```bash
+./scripts/stop_gripper.sh
+```
+
+该入口复用跟随锁，仍在跟随／退出返回时拒绝执行。它停止远端服务并释放串口，
+不执行夹爪开合，也不重新启用开机自启。可用 `--gripper-host` 和 `--ssh-user` 覆盖目标。
 
 跟随日志在 `xcore-sdk-python/logs/follow-*/`：`preparation.json` 是对齐结果，
 `server.log` 是服务端日志。六轴跟随已实测；默认高速度对齐和夹爪全行程跟随仍需按现场逐项验收。
@@ -518,8 +573,8 @@ ssh rokae@192.168.2.225 'journalctl --user -u xcore-gripper-follow.service -n 50
 git pull --ff-only
 git submodule sync
 git -c url."https://github.com/".insteadOf=git@github.com: submodule update --init
-./setup.sh --skip-submodules
-./setup.sh --check-only
+./scripts/setup.sh --skip-submodules
+./scripts/setup.sh --check-only
 ```
 
 远端夹爪部署目录独立于本机子模块；本机更新不会自动更新远端服务。
@@ -527,14 +582,57 @@ git -c url."https://github.com/".insteadOf=git@github.com: submodule update --in
 需要记录从臂反馈时，使用记录入口代替普通跟随入口：
 
 ```bash
-./start_gripper.sh
-./start_data_record.sh --task "pick up the object"
+./scripts/start_gripper.sh
+./scripts/start_data_record.sh --task "pick up the object"
 ```
 
 它先对齐再跟随；R 开始记录、S 保存、D 丢弃、P 查看状态、H 帮助。
-Ctrl+C 或故障退出后先关闭记录和跟随、处理六轴回零，再转换已保存片段；
-恢复／回零动作不写入 episode，未保存片段保留为 `.partial`。
+Ctrl+C 或故障退出后先关闭记录和跟随、处理六轴退出返回，再转换已保存片段；
+恢复／返回动作不写入 episode，未保存片段保留为 `.partial`。
 未保存片段保留为 `.partial`。原始数据在 `data/raw/`，LeRobot 数据在 `data/lerobot/`。
 
 工程细节与原 README 内容见 [docs/DEVELOPMET.md](docs/DEVELOPMET.md)；
 扩展说明见 [数据记录](docs/DATA_RECORDING.md)、[现场夹爪服务管理](docs/GRIPPER_SERVER_UPDATE.md)。
+
+## 11. 远程双 D435i 相机
+
+相机接在 `rokae@192.168.2.225`，项目部署于远端 `~/project/camera-realsense-d435i/`。
+控制仓库仅通过 `camera-realsense-d435i` 子模块引用相机实现。
+两台相机分别提供 RGB＋深度页面，独立于机械臂和夹爪，可单独操作：
+
+```bash
+# 首次初始化并安装本地客户端；已有环境则跳过
+git submodule update --init camera-realsense-d435i
+uv sync --locked --no-dev --project camera-realsense-d435i
+
+# 建立 SSH 隧道、启动两台采集并打开两个页面
+./scripts/start_camera.sh
+# 无桌面或希望自己打开页面
+./scripts/start_camera.sh --no-open
+
+./scripts/start_camera.sh status
+./scripts/start_camera.sh info
+./scripts/start_camera.sh snapshot
+./scripts/start_camera.sh stop
+# 完全停止远端相机进程，并关闭对应本地隧道
+./scripts/stop_camera.sh
+# 仅停止第二台；第一台不受影响
+./scripts/stop_camera.sh --camera cam2
+```
+
+本地页面为 <http://127.0.0.1:8086>（cam1，序列号 349522071221）和
+<http://127.0.0.1:8087>（cam2，序列号 349522072318）。
+`./scripts/start_camera.sh --camera cam2` 只启动第二台；`./scripts/start_camera.sh status --camera cam1`
+只查第一台。默认地址由 `XCORE_CAMERA_SSH_TARGET=rokae@192.168.2.225` 覆盖，需 SSH 密钥登录。
+
+关闭网页不会停止采集；`stop` 会释放相机。`./scripts/start_camera.sh disconnect` 只关隧道，
+应先执行 `stop`。远端 API 服务已取消开机／登录自启，本地启动命令会先按需启动服务，
+再打开相机；SSH 服务保持可用，以接收这些命令。
+截图默认保存在运行目录 `captures/cam1/`、`captures/cam2/` 下，包含 RGB JPEG、原始
+16 位深度 PNG 和标定／时间元数据；这些画面不提交 Git。
+
+当前两台以 USB 2.1 连接，已实测同时 640×480、15fps 采集及四路 MJPEG。
+cam2 测试时有效深度较少，需检查现场朝向／遮挡和距离。
+深度为原生视角，未对齐 RGB；两台没有硬同步，也尚未接入机械臂数据记录。
+完整 CLI、部署和验收边界见 [相机 README](camera-realsense-d435i/README.md) 与
+[相机开发文档](camera-realsense-d435i/docs/DEVELOPMENT.md)。

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Record through the existing single-reader follow launcher, then convert offline.
 set -Eeuo pipefail
-root_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+root_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 raw_root="$root_dir/data/raw"
 dataset_root="$root_dir/data/lerobot"
 dataset_fps=30
@@ -16,9 +16,9 @@ stop_requested=false
 
 usage() {
     cat <<'EOF'
-用法：./start_data_record.sh [选项]
+用法：./scripts/start_data_record.sh [选项]
 启动 CR7 六轴与外接夹爪跟随，并记录从臂实际反馈。启动前需运行夹爪服务。
-R=开始，S=保存，D=丢弃，P=状态，H=帮助；Ctrl+C 停止跟随、六轴回零后转换已保存 episode。
+R=开始，S=保存，D=丢弃，P=状态，H=帮助；Ctrl+C 停止跟随、返回保存姿态后转换已保存 episode。
 未保存的 episode 保留为 .jsonl.partial，不自动转换。
   --raw-data-root PATH       默认 data/raw
   --lerobot-data-root PATH   默认 data/lerobot
@@ -28,7 +28,8 @@ R=开始，S=保存，D=丢弃，P=状态，H=帮助；Ctrl+C 停止跟随、六
   --gripper-host HOST        默认 192.168.2.225，可用 XCORE_GRIPPER_HOST 覆盖
   --start-recording          对齐后立即开始 episode 0
   --show-state               循环打印状态；默认关闭，记录与故障检查不受影响
-  --no-return-zero           禁用 Ctrl+C／故障退出后的六轴回零
+  --return-pose-file FILE     指定退出返回姿态，默认使用 SDK config/exit_pose.json
+  --no-return                禁用退出返回；--no-return-zero 是兼容别名
 其余 --ip、--local-ip、--gello-port、--calib、--hz、--prepare-*、--skip-prepare、
 --calibrate-zero、--gripper-*、--record-*、--yes
 参数传给统一跟随入口；无需另外运行 start_gello_follow.sh。
@@ -70,8 +71,8 @@ while (( $# )); do
         --skip-conversion) convert=false; shift ;;
         --task) task="${2:?缺少任务}"; shift 2 ;;
         --gripper-host) gripper_host="${2:?缺少夹爪地址}"; shift 2 ;;
-        --start-recording|--yes|--skip-prepare|--calibrate-zero|--show-state|--no-return-zero) follow_options+=("$1"); shift ;;
-        --ip|--local-ip|--gello-port|--calib|--port|--hz|--max-speed-deg|--prepare-speed|--prepare-motion-timeout|--prepare-max-step-deg|--record-queue-size|--record-feedback-max-age|--gripper-port|--gripper-id|--gripper-open-deg|--gripper-close-deg|--gripper-open-pos|--gripper-closed-pos|--gripper-hz|--gripper-speed|--gripper-force|--gripper-timeout|--gripper-stale-timeout)
+        --start-recording|--yes|--skip-prepare|--calibrate-zero|--show-state|--no-return|--no-return-zero) follow_options+=("$1"); shift ;;
+        --return-pose-file|--ip|--local-ip|--gello-port|--calib|--port|--hz|--max-speed-deg|--prepare-speed|--prepare-motion-timeout|--prepare-max-step-deg|--record-queue-size|--record-feedback-max-age|--gripper-port|--gripper-id|--gripper-open-deg|--gripper-close-deg|--gripper-open-pos|--gripper-closed-pos|--gripper-hz|--gripper-speed|--gripper-force|--gripper-timeout|--gripper-stale-timeout)
             [[ $# -ge 2 ]] || { echo "$1 缺少参数" >&2; exit 2; }
             follow_options+=("$1" "$2"); shift 2 ;;
         -h|--help) usage; exit 0 ;;
@@ -81,14 +82,14 @@ done
 [[ "$dataset_fps" =~ ^[1-9][0-9]*$ ]] || { echo "FPS 必须为正整数" >&2; exit 2; }
 converter_python="$root_dir/lerobot-converter/.venv/bin/python"
 if [[ "$convert" == true ]]; then
-    [[ -x "$converter_python" ]] || { echo "请先执行 ./setup.sh 安装转换器" >&2; exit 1; }
+    [[ -x "$converter_python" ]] || { echo "请先执行 ./scripts/setup.sh 安装转换器" >&2; exit 1; }
     "$converter_python" -c \
         'from lerobot.datasets.lerobot_dataset import LeRobotDataset'
 fi
 mkdir -p -- "$raw_root"
 raw_root="$(cd -- "$raw_root" && pwd)"
 session_file="$(mktemp /tmp/xcore-raw-session.XXXXXX)"
-setsid bash "$root_dir/start_gello_follow.sh" --enable-motion \
+setsid bash "$root_dir/scripts/start_gello_follow.sh" --enable-motion \
     --gripper-host "$gripper_host" --raw-data-root "$raw_root" --task "$task" \
     --session-path-file "$session_file" "${follow_options[@]}" <&0 &
 follow_pid=$!
@@ -101,7 +102,7 @@ done
 set -e
 follow_pid=""
 
-# The follow launcher has closed both the RT session and the return-zero session.
+# The follow launcher has closed both RT and exit-return sessions.
 # Conversion must wait for that shutdown, including the Ctrl+C path.
 if [[ -s "$session_file" ]]; then
     raw_session="$(<"$session_file")"

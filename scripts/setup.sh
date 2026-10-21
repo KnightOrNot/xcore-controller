@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 # Initialize independent subprojects and their Python environments.
 set -Eeuo pipefail
-root_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+root_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 check_only=false
 skip_submodules=false
 
 usage() {
     cat <<'EOF'
-用法：./setup.sh [--check-only] [--skip-submodules]
-初始化四个子模块并配置独立 Python 环境。控制使用 Python 3.11，转换使用 Python 3.12。
+用法：./scripts/setup.sh [--check-only] [--skip-submodules]
+初始化五个子模块并配置独立 Python 环境。控制／相机客户端使用 Python 3.11，转换使用 Python 3.12。
 --check-only       只检查现有环境与命令，不安装、不连接硬件
 --skip-submodules 保留当前子模块版本，只同步软件环境
 EOF
@@ -29,7 +29,7 @@ if [[ "$check_only" == false && "$skip_submodules" == false ]]; then
     git -C "$root_dir" submodule sync
     git -C "$root_dir" submodule update --init
 fi
-for project in xcore-sdk-python xcore-gello-software xcore-gripper-2F85 lerobot-converter; do
+for project in xcore-sdk-python xcore-gello-software xcore-gripper-2F85 lerobot-converter camera-realsense-d435i; do
     project_dir="$root_dir/$project"
     [[ -f "$project_dir/.python-version" ]] || { echo "子模块尚未初始化：$project" >&2; exit 1; }
     requested="$(tr -d '\r\n' < "$project_dir/.python-version")"
@@ -58,7 +58,8 @@ done
 "$root_dir/lerobot-converter/.venv/bin/python" "$root_dir/tools/convert_cr7.py" --help >/dev/null
 "$root_dir/lerobot-converter/.venv/bin/python" -c \
     'from lerobot.datasets.lerobot_dataset import LeRobotDataset'
+"$root_dir/camera-realsense-d435i/.venv/bin/camera-realsense-d435i" --help >/dev/null
 if [[ "$check_only" == false ]]; then
     mkdir -p "$root_dir/data/raw" "$root_dir/data/lerobot"
 fi
-echo "四个子项目的环境与命令入口检查通过。"
+echo "五个子项目的环境与命令入口检查通过。"

@@ -22,17 +22,18 @@
 | Python | `/home/rokae/miniconda3/bin/python3.13`，pyserial 3.5 |
 | 夹爪串口 | `/dev/serial/by-id/usb-FTDI_USB_TO_RS-485_DAAQMP8J-if00-port0` |
 | 源码提交 | `d250051d8a6e1cf4f77bca3383c9a899be4ad04a` |
-| 部署根目录 | `/home/rokae/xcore-gripper-follow` |
-| 当前源码链接 | `/home/rokae/xcore-gripper-follow/current` |
-| 部署清单 | `/home/rokae/xcore-gripper-follow/deployment.json` |
+| 部署根目录 | `/home/rokae/project/xcore-gripper-follow` |
+| 当前源码链接 | `/home/rokae/project/xcore-gripper-follow/current` |
+| 部署清单 | `/home/rokae/project/xcore-gripper-follow/deployment.json` |
 | 用户服务 | `xcore-gripper-follow.service` |
 
 源码归档解包到 `releases/<提交 SHA>`；该目录不是 Git 工作树，不在部署根目录
 执行 `git pull`。后续升级应传输新发布版本，验证后切换服务的源码路径。
 原 `/home/rokae/rokae/2F85demo` 文件保持原样，旧服务进程已停止。
 
-服务已设置为随 `rokae` 用户登录启动，由用户级 systemd 在后台管理，
-无需保持夹爪启动终端打开。当前 `Linger=no`，未配置用户尚未登录时自动运行。
+服务已取消开机／登录自启（disabled），由本地 `./scripts/start_gripper.sh` 通过 SSH 按需启动，
+并交给用户级 systemd 在后台管理，无需保持夹爪启动终端打开。
+当前 `Linger=yes` 保留，使按需启动的用户服务在 SSH 断开后仍可运行；它不启用设备自启。
 服务启动／重启会激活夹爪；不要在跟随过程中重启，也不要同时启动旧服务。
 
 ## 从控制电脑管理远端服务
@@ -40,10 +41,10 @@
 控制器入口默认管理远端服务，不会尝试本机 USB：
 
 ```bash
-./start_gripper.sh                # 启动／检查；空闲时自动清除单纯的断流超时，已有服务不重启
-./start_gripper.sh --status       # 只读检查服务能力及实际反馈
-./start_gripper.sh --restart      # 先结束跟随，再重启（会激活夹爪）
-./start_gripper.sh --reset-stream # 先结束跟随，停止并清除断流故障
+./scripts/start_gripper.sh                # 启动／检查；空闲时自动清除单纯的断流超时，已有服务不重启
+./scripts/start_gripper.sh --status       # 只读检查服务能力及实际反馈
+./scripts/start_gripper.sh --restart      # 先结束跟随，再重启（会激活夹爪）
+./scripts/start_gripper.sh --reset-stream # 先结束跟随，停止并清除断流故障
 ```
 
 远端地址／用户可由 `--gripper-host`、`--ssh-user` 或环境变量
@@ -79,20 +80,20 @@ ssh rokae@192.168.2.225 'systemctl --user restart xcore-gripper-follow.service'
 ```bash
 cd /home/knight/projects/xcore/xcore-controller
 ./xcore-sdk-python/.venv/bin/xcore-sdk-python gripper-check --gripper-host 192.168.2.225
-./start_gello_follow.sh
+./scripts/start_gello_follow.sh
 ```
 
 检查输出应有 `ok: true`、`streaming: true`、`stream_error: null` 和实际
 `position_raw`。默认脚本预览输出启动偏差与夹爪连接状态；
-需要查看连续关节角和 `gripper_target` 时使用 `./start_gello_follow.sh --show-state`。
+需要查看连续关节角和 `gripper_target` 时使用 `./scripts/start_gello_follow.sh --show-state`。
 这些只读检查不发送运动目标。
 
 再保持 GELLO 在期望姿态，启动统一跟随：
 
 ```bash
-./start_gello_follow.sh --enable-motion
+./scripts/start_gello_follow.sh --enable-motion
 # 单独设置实时关节限速
-./start_gello_follow.sh --enable-motion --max-speed-deg 10
+./scripts/start_gello_follow.sh --enable-motion --max-speed-deg 10
 ```
 
 脚本默认使用 `.225:5005`、启动对齐 SDK 速度 `4000 mm/s`，
