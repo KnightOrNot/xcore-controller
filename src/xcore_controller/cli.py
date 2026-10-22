@@ -182,7 +182,14 @@ def _main(argv=None):
                 sampler.stop.set()
                 sampler.thread.join(3)
     else:
-        state = RemoteSession(roles["leader_timeout_s"], simulated=a.simulate)
+        # In hardware mode the leader crosses HTTP/SSH; the read-only status
+        # latch (0.5 s) is far too tight for the RT stale watchdog.
+        leader_timeout = roles["leader_timeout_s"]
+        if getattr(a, "hardware", False):
+            leader_timeout = max(
+                leader_timeout, config["robot"]["remote_stale_timeout_s"]
+            )
+        state = RemoteSession(leader_timeout, simulated=a.simulate)
         monitor = motion = None
         if not a.simulate:
             sys.path.insert(0, str(root / "xcore-sdk-python/src"))

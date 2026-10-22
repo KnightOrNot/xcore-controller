@@ -827,3 +827,10 @@ Robot／Teleoperator adapter 只附着已有 worker，断开只释放客户端�
   `/status` 增加 `leader_age_s`，停止原因记录实际断流秒数。
 - 验证：离线 72 项测试通过，远端 unit 已重启加载新配置。**仍需现场重新 arm 验证**；
   若再次停止，先看 `leader_age_s` 和日志中的实际断流秒数，不要立即重复发 arm。
+
+- 第二次现场 arm 仍停止，日志给出 `after 0.51s without a sample (timeout 3.0s)`：
+  真正生效的是 **`LeaderInbox` 的 0.5 s 超时**（`[roles].leader_timeout_s`），
+  而不是运动 worker 的 3 s。hardware 模式现改为
+  `max(roles.leader_timeout_s, robot.remote_stale_timeout_s)`，让 inbox 与 RT
+  看门狗使用同一个 3 s 阈值；只读角色仍保留 0.5 s 的快速状态标记。
+- 远端 unit 已重启；仍需现场重新 arm 验证实际跟随。
