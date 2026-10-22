@@ -755,7 +755,9 @@ disabled，按需启动）、相机服务、3.12 数据环境；本地已安装 
 远端首次安装缺失的 unit（在远端 `~/project/xcore-controller` 执行，需先确认现场部署）：
 
 ```bash
-python3 deploy/install_role_services.py --add-missing
+# 远端系统 python3 为 3.10，安装脚本需要 3.11 读取 TOML：
+~/project/xcore-runtime/cpython-3.11.16-linux-x86_64-gnu/bin/python3.11 \
+  deploy/install_role_services.py --add-missing
 ```
 
 该脚本只补缺失 unit（disabled），不会覆盖已有 unit 或启动硬件。

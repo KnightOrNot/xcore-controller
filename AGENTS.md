@@ -787,7 +787,11 @@ Robot／Teleoperator adapter 只附着已有 worker，断开只释放客户端�
 - `setup.sh --check-only` 增加两个数据子项目及 dataset 配置检查。
   `deploy/install_role_services.py` 增加 hardware unit 与 `--add-missing`：
   只补缺失 unit，绝不覆盖已有部署；hardware unit 的 PYTHONPATH 包含
-  `xcore-dataset/src`。**本轮没有在远端安装该 unit**，安装仍需用户确认。
+  `xcore-dataset/src`。用户已明确授权安装；2026-10-22 已用远端 3.11 运行时
+  （系统 python3 为 3.10，无 tomllib）安装，unit 为 **disabled/inactive**。
+  `start_remote_controller.sh --hardware` 实测可启动 unit 和隧道，状态为
+  `motion_capable=true`、`idle`、`vendor_flange_model`、无 FK 错误、
+  `conversion enabled=true`；测试后已停止 tunnel／unit，端口释放。
 - xcore-adapters 新增 `AttachedLeader`／`AttachedRobot`：只附着 loopback 上已运行的
   worker，只读状态／样本，不导入 LeRobot／SDK、不启动硬件、不发运动命令。
 - 联调（无运动）：本地 GELLO 服务＋远端临时 `--hardware`（4 秒后停止）＋SSH 隧道，
