@@ -758,3 +758,19 @@ Robot／Teleoperator adapter 只附着已有 worker，断开只释放客户端�
   失败拒绝提交、未 armed 拒绝和 loopback 校验测试。dataset 4 项、adapter 3 项通过。
 - 远端冒烟：session 可创建；未 armed 时 `episode/start` 返回 409 并在创建任何
   采集前拒绝；测试 session 已删除。**未执行真机 arm、未录制真实 episode。**
+
+### 阶段 4：会话转换、持久任务队列与拉取（已完成离线／合成验证）
+
+- xcore-dataset 的 `convert` 支持 session 输入：一个 session → 一个 LeRobot 数据集，
+  每个封存 episode → 一个 LeRobot episode；特征维度跨 episode 必须一致，
+  质量报告逐 episode 记录帧数、最大误差和 `COMMITTED.json` SHA-256。
+- 新增 `jobs.py` 与 CLI `queue`／`jobs`／`jobs --run`／`jobs --retry JOB`：
+  queued→running→ready/failed；崩溃留在 running 的任务重新排队，staging 改名保留，
+  已发布 revision 不覆盖。转换环境需要 FFmpeg 7 的 `LD_LIBRARY_PATH`／`PATH`，
+  否则 TorchCodec 加载失败（已实测并写入 README）。
+- controller 的 `session/stop` 在 `recording.convert=true` 时后台调用 3.12 dataset
+  CLI 排队并执行，不把 LeRobot 依赖加入 3.11 SDK 环境。
+- 远端合成两 episode 会话：queue → 首次因 TorchCodec 环境失败 → `--retry` 成功 →
+  `READY`/`verify` 通过；远端 `/api/datasets`、`/api/sample` 正常；
+  本地 `pull_dataset.sh` 拉取、SHA-256 校验和真实 loader 回读通过（8 帧、2 episodes）。
+  该数据明确为合成数据，不是真机采集。

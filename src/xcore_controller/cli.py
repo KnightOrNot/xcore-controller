@@ -216,6 +216,28 @@ def _main(argv=None):
                     motion,
                 )
                 state.attach_recorder(recorder)
+                from .conversion import ConversionScheduler
+
+                data_root = Path(recorder.settings.raw_root).expanduser().resolve()
+                dataset_python = Path.home() / roles["remote_dataset_python"]
+                runtime = dataset_python.parents[2]
+                environment = dict(os.environ)
+                environment["PATH"] = (
+                    f"{runtime}/media/bin:" + environment.get("PATH", "/usr/bin:/bin")
+                )
+                environment["LD_LIBRARY_PATH"] = (
+                    f"{runtime}/media/lib:"
+                    f"{runtime}/dataset-venv/lib/python3.12/site-packages/torch/lib"
+                )
+                state.attach_conversion(
+                    ConversionScheduler(
+                        python=dataset_python,
+                        dataset_root=root / "xcore-dataset",
+                        data_root=data_root.parent,
+                        enabled=config["recording"]["convert"],
+                        env=environment,
+                    )
+                )
             else:
                 monitor = SdkMonitor(
                     state,

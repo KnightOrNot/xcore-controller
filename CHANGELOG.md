@@ -11,6 +11,9 @@
 - 新增远端 raw 会话：`session/start|stop`、`episode/start|save|discard`，
   双相机无损帧＋EE10 样本按远端 host 时间对齐，失败片段拒绝提交；
   xcore-dataset 放宽到 Python 3.11 以便远端 SDK 运行时导入 raw 写入器。
+- xcore-dataset 支持 session→多 LeRobot episode 转换，并新增持久转换队列
+  （queued/running/ready/failed、崩溃重排、失败重试、staging 保留）；
+  controller 在 `session/stop` 后自动排队转换，不在 3.11 SDK 环境加载 LeRobot。
 - 相机子模块升级到 `76d33ac`：同一采集 pipeline 新增无损 RGB／Z16 连续记录，
   有界队列／写盘线程／`COMPLETE.json` 提交标记；真实双机 10 秒各 150 帧零丢帧。
 - 新增 `[robot].return_mode`（`start`/`zero`/`none`），默认 `zero`：

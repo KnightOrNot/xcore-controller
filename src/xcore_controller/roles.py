@@ -78,12 +78,16 @@ class RemoteSession:
         self.observation = {}
         self.motion = None
         self.recorder = None
+        self.conversion = None
 
     def attach_motion(self, motion):
         self.motion = motion
 
     def attach_recorder(self, recorder):
         self.recorder = recorder
+
+    def attach_conversion(self, conversion):
+        self.conversion = conversion
 
     def call(self, command, data):
         # Leader state is small and lock-protected; motion commands are executed
@@ -144,7 +148,11 @@ class RemoteSession:
             if command == "session/start":
                 return self.recorder.start_session(data.get("task"))
             if command == "session/stop":
-                return self.recorder.stop_session()
+                session_dir = self.recorder.status()["session_dir"]
+                result = self.recorder.stop_session()
+                if session_dir and self.conversion is not None:
+                    result["conversion"] = self.conversion.submit(session_dir)
+                return result
             if command == "episode/start":
                 return self.recorder.start_episode()
             if command == "episode/save":
@@ -174,6 +182,8 @@ class RemoteSession:
             result["motion"] = self.motion.status()
         if self.recorder is not None:
             result["recording"] = self.recorder.status()
+        if self.conversion is not None:
+            result["conversion"] = self.conversion.status()
         return result
 
 

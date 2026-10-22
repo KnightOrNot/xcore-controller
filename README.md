@@ -721,3 +721,26 @@ HTTP 接口（经本地 bridge 或直接调用）：
 
 相机失败、队列丢帧、FK 缺失、样本或图像超时都会使该 episode 失败；失败后
 `save` 拒绝提交，只能丢弃。raw 目录默认 `$HOME/project/xcore-data/raw`。
+
+## 远端转换队列与拉取（2026-10-22 阶段 4）
+
+`session/stop` 默认把已封存会话排入远端转换队列并在后台执行（`recording.convert`）。
+转换在独立 Python 3.12 数据环境运行，使用 LeRobot 0.6，输出到
+`~/project/xcore-data/lerobot/<dataset_id>/rev-XXXX`；任务状态在
+`~/project/xcore-data/jobs/`，失败保留 staging 供排查和重试。
+
+```bash
+# 远端队列（经 SSH 手动查看／重试）
+ssh rokae@192.168.2.225 'cd ~/project/xcore-dataset && \
+  ~/project/xcore-runtime/dataset-venv/bin/python -m xcore_dataset.cli jobs \
+  --root ~/project/xcore-data'
+
+# 本地按需拉取完整已发布 revision（rsync + SHA-256 + loader 回读）
+./scripts/pull_dataset.sh <dataset_id> <rev-0001>
+```
+
+一个 session 生成一个 LeRobot 数据集：每个已提交 raw episode 对应一个 LeRobot
+episode，质量报告逐 episode 保存帧数、时间误差和来源 SHA-256。转换崩溃后
+`running` 任务会自动重新排队，staging 改名保留，已发布 revision 不被覆盖。
+2026-10-22 已用远端两 episode 合成会话完成 publish → LeLab／API 读取 →
+本地 `pull_dataset.sh` 校验和 loader 回读（8 帧、2 episodes）。
