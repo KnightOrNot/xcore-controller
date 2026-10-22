@@ -5,9 +5,9 @@
 
 ## 2026-10-22
 
-- 新增 `[robot].return_mode`（`start`/`saved`/`zero`/`none`），默认 `start`：
-  启动跟随或记录前记录当前从臂实际姿态，退出（Ctrl+C、SIGTERM、正常结束、故障）时
-  自动返回该姿态。`--return-mode` 可覆盖，`none`/`--no-return` 禁用返回。
+- 新增 `[robot].return_mode`（`start`/`zero`/`none`），默认 `zero`：
+  退出时返回六轴 0°；`start` 在启动前记录当前从臂实际姿态并返回该姿态，
+  `none` 禁用返回。`--return-mode` 可覆盖。
 - 同步更新 README、配置/CLI 文档和 AGENTS；未改变现场固定姿态文件。
 
 ## 2026-10-21

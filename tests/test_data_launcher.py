@@ -116,8 +116,8 @@ def test_record_entry_routes_options_and_converts_after_shutdown(launcher):
             "50",
             "--skip-prepare",
             "--show-state",
-            "--return-pose-file",
-            str(launcher / "custom exit pose.json"),
+            "--return-mode",
+            "start",
             "--no-return-zero",
         ],
         capture_output=True,
@@ -132,9 +132,7 @@ def test_record_entry_routes_options_and_converts_after_shutdown(launcher):
     assert "--skip-prepare" in args
     assert "--show-state" in args
     assert "--no-return-zero" in args
-    assert args[args.index("--return-pose-file") + 1] == str(
-        launcher / "custom exit pose.json"
-    )
+    assert args[args.index("--return-mode") + 1] == "start"
     assert args[args.index("--prepare-speed") + 1] == "50"
     assert args[args.index("--task") + 1] == "pick object"
     conversion = json.loads((launcher / "conversion.json").read_text())

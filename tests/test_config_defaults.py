@@ -28,7 +28,7 @@ def test_defaults_are_loaded() -> None:
     assert result.returncode == 0, result.stderr
     data = json.loads(result.stdout)
     assert data["robot"]["ip"] == "192.168.2.160"
-    assert data["robot"]["return_mode"] == "start"
+    assert data["robot"]["return_mode"] == "zero"
     assert data["remote"]["gripper_host"] == "192.168.2.225"
     assert data["recording"]["dataset_fps"] == 30
     assert data["camera"]["snapshot_dir"] == "captures"
@@ -87,6 +87,7 @@ def test_environment_can_select_config_for_tool(tmp_path: Path) -> None:
         "[remote]\ngripper_port = 65536\n",
         "[robot]\nprepare_speed = nan\n",
         '[robot]\nreturn_mode = "bad"\n',
+        '[robot]\nreturn_mode = "saved"\n',
         "[timeouts]\ngripper_ready_s = inf\n",
         "[timeouts]\nssh_connect_s = 0\n",
         "[recording]\ndataset_fps = true\n",

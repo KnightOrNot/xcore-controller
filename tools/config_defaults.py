@@ -161,7 +161,7 @@ def _builtin(section: str, key: str) -> Any:
         ("robot", "ip"): "192.168.2.160",
         ("robot", "follow_max_speed_deg"): 75,
         ("robot", "prepare_speed"): 4000,
-        ("robot", "return_mode"): "start",
+        ("robot", "return_mode"): "zero",
         ("gello", "port"): "",
         ("remote", "gripper_host"): "192.168.2.225",
         ("remote", "gripper_ssh_user"): "rokae",
@@ -235,10 +235,8 @@ def validate(values: Values) -> None:
     if values.get("robot.follow_max_speed_deg") > 75:
         raise ValueError("robot.follow_max_speed_deg is limited to 75 deg/s")
     mode = values.get("robot.return_mode")
-    if mode not in ("start", "saved", "zero", "none"):
-        raise ValueError(
-            "robot.return_mode must be start, saved, zero or none"
-        )
+    if mode not in ("start", "zero", "none"):
+        raise ValueError("robot.return_mode must be start, zero or none")
     if not 5 <= values.get("robot.prepare_speed") <= 4000:
         raise ValueError("robot.prepare_speed must be in 5..4000 mm/s")
     if not 1 <= values.get("remote.gripper_port") <= 65535:

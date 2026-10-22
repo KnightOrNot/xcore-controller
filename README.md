@@ -491,29 +491,18 @@ exit
 
 **结束实验：按 Ctrl+C，等待六轴返回后退出。** 脚本先停止跟随和夹爪、
 关闭实时／准备 SDK 会话，再执行退出返回。返回目标由 `config/default.toml` 的
-`[robot].return_mode` 控制，默认 `start`：
+`[robot].return_mode` 控制，默认 `zero`：
 
 | `return_mode` | 退出返回目标 |
 | --- | --- |
-| `start`（默认） | 每次启动跟随／记录前通过只读反馈记录当前六轴姿态；安全退出、主动退出和故障退出都返回该姿态 |
-| `saved` | 返回 `xcore-sdk-python/config/exit_pose.json` 的固定姿态（旧行为） |
-| `zero` | 返回六轴 0° |
+| `zero`（默认） | 返回六轴 0° |
+| `start` | 每次启动跟随／记录前通过只读反馈记录当前六轴姿态；安全退出、主动退出和故障退出都返回该姿态 |
 | `none` | 不自动返回，等价于 `--no-return` |
 
-命令行 `--return-mode start|saved|zero|none` 优先于配置文件；也可设置
+命令行 `--return-mode start|zero|none` 优先于配置文件；也可设置
 `XCORE_RETURN_MODE` 覆盖。`start` 模式在启动对齐前采集姿态，写入本次会话的
-`logs/follow-*/exit_pose.json`，不会修改 `config/exit_pose.json`，也不会在失败时
-退回零点。启动采集失败会在任何运动前中止。
-`saved` 模式使用固定现场姿态。2026-10-21 16:18:43 保存的角度（度）为：
-
-```text
-J1          J2         J3          J4        J5          J6
-179.186600  26.419991  -73.511266  5.752057  -78.952135  -0.312863
-```
-
-`saved` 文件可用 `--return-pose-file PATH`／`XCORE_EXIT_POSE` 覆盖，包含
-`schema_version: 1`、匹配的 `robot_ip` 和六个有限 `joints_rad`；缺失或无效文件会在
-连接设备前拒绝启动。`start` 和 `zero` 模式不需要该文件。
+`logs/follow-*/exit_pose.json`，不会修改现场文件。启动采集失败会在任何运动前中止。
+`zero` 模式在启动前生成六轴 0° 目标，不需要额外姿态文件。
 每次会话仍保存独立的 `logs/follow-*/exit_pose.json` 快照；返回结果保存为
 `return-pose.json`。返回速度与等待时间沿用 `--prepare-speed`（默认 `4000 mm/s`）和
 `--prepare-motion-timeout`（默认 `600 s`）；完成后恢复返回前的电源状态和模式。
@@ -533,10 +522,9 @@ J1          J2         J3          J4        J5          J6
 ./scripts/start_data_record.sh --task "pick up the object" --return-mode none
 ```
 
-独立 SDK 命令为 `uv run --project xcore-sdk-python xcore-sdk-python return-pose`。
-如需六轴真正全零，必须显式使用 `return-pose --zero`；启动器可用
-`--return-mode zero`。已运行的旧启动器使用 `return-zero` 兼容入口，也会读取已保存的
-默认退出姿态；该旧进程的终端文案可能仍写“回零”。
+独立 SDK 命令为 `uv run --project xcore-sdk-python xcore-sdk-python return-pose`；
+如需固定姿态文件，仍可直接使用 `return-pose --pose-file FILE`，但启动器的返回模式
+只保留 `start`、`zero`、`none`。旧 `return-zero` 兼容入口保留。
 
 紧急情况使用设备硬件急停；终端退出不能替代硬件急停。
 
