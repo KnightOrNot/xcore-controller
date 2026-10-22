@@ -5,6 +5,9 @@
 
 ## 2026-10-22
 
+- 新增远端运动角色：`remote-serve --hardware`、显式 `arm/prepare/stop/exit/pose`、
+  远端主臂映射（解缠／标定／2π 分支）与 vendor FK pose10；断流锁定、重连不自动 arm。
+  真实运动尚未现场验收；`xcore-controller-hardware.service` 安装项已加入部署脚本但未安装。
 - 相机子模块升级到 `76d33ac`：同一采集 pipeline 新增无损 RGB／Z16 连续记录，
   有界队列／写盘线程／`COMPLETE.json` 提交标记；真实双机 10 秒各 150 帧零丢帧。
 - 新增 `[robot].return_mode`（`start`/`zero`/`none`），默认 `zero`：

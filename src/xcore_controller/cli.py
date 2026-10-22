@@ -34,11 +34,35 @@ def _main(argv=None):
     mode = r.add_mutually_exclusive_group(required=True)
     mode.add_argument("--simulate", action="store_true")
     mode.add_argument("--hardware-read-only", action="store_true")
+    mode.add_argument(
+        "--hardware",
+        action="store_true",
+        help="SDK owner with explicit arm; motion still requires /arm",
+    )
+    r.add_argument("--calib", type=Path)
+    r.add_argument("--sdk-config", type=Path)
+    r.add_argument("--max-speed-deg", type=float)
+    r.add_argument("--prepare-speed", type=float)
+    r.add_argument("--return-mode", choices=("start", "zero", "none"))
     b = subs.add_parser("bridge")
     b.add_argument("--leader-url", required=True)
     b.add_argument("--remote-url", required=True)
     s = subs.add_parser("status")
     s.add_argument("url")
+    c = subs.add_parser("command", help="send one control request to a role")
+    c.add_argument("url")
+    c.add_argument(
+        "action",
+        choices=(
+            "arm",
+            "prepare",
+            "stop",
+            "exit",
+            "capture-start",
+            "pose",
+        ),
+    )
+    c.add_argument("--return-mode", choices=("start", "zero", "none"))
     a = p.parse_args(argv)
     sys.path.insert(0, str(root / "tools"))
     from config_defaults import load
@@ -47,6 +71,18 @@ def _main(argv=None):
     roles = config["roles"]
     if a.command == "status":
         print(json.dumps(request(a.url + "/status"), ensure_ascii=False, indent=2))
+        return
+    if a.command == "command":
+        payload = {}
+        if a.action in ("exit", "return") and a.return_mode:
+            payload["mode"] = a.return_mode
+        print(
+            json.dumps(
+                request(a.url + "/" + a.action, payload),
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
         return
     if a.command == "bridge":
         instance = None
@@ -102,23 +138,67 @@ def _main(argv=None):
                 sampler.thread.join(3)
     else:
         state = RemoteSession(roles["leader_timeout_s"], simulated=a.simulate)
-        monitor = None
+        monitor = motion = None
         if not a.simulate:
             sys.path.insert(0, str(root / "xcore-sdk-python/src"))
-            monitor = SdkMonitor(
-                state,
-                config["robot"]["ip"],
-                roles["remote_local_ip"],
-                None,
-                root / "xcore-sdk-python/.follow.lock",
-            )
-            monitor.thread.start()
+            if a.hardware:
+                from xcore_sdk_python.configuration import load_config
+
+                from .motion import MotionSettings, MotionWorker
+
+                sdk_config = (
+                    a.sdk_config or root / "xcore-sdk-python/config/default.toml"
+                )
+                sdk = load_config(sdk_config)
+                calib = Path(a.calib or sdk.calibration.file)
+                if not calib.is_absolute():
+                    # SDK-relative file, exactly like the direct follow CLI.
+                    calib = Path(sdk_config).resolve().parent.parent / calib
+                settings = MotionSettings(
+                    ip=config["robot"]["ip"],
+                    local_ip=roles["remote_local_ip"],
+                    lock_path=str(root / "xcore-sdk-python/.follow.lock"),
+                    calibration=str(calib),
+                    max_speed_deg=a.max_speed_deg
+                    if a.max_speed_deg is not None
+                    else config["robot"]["follow_max_speed_deg"],
+                    accel_deg_s2=sdk.server.accel_deg_s2,
+                    control_hz=sdk.server.state_hz,
+                    stale_timeout_s=sdk.server.stale_timeout_s,
+                    gate_deg=sdk.server.gate_deg,
+                    prepare_speed=a.prepare_speed
+                    if a.prepare_speed is not None
+                    else config["robot"]["prepare_speed"],
+                    prepare_samples=sdk.calibration.samples,
+                    prepare_interval_s=sdk.calibration.interval_s,
+                    prepare_max_step_deg=sdk.prepare.max_step_deg,
+                    prepare_tolerance_deg=sdk.prepare.tolerance_deg,
+                    prepare_timeout_s=sdk.prepare.motion_timeout_s,
+                    return_speed=sdk.return_.speed,
+                    return_max_step_deg=sdk.return_.max_step_deg,
+                    return_tolerance_deg=sdk.return_.tolerance_deg,
+                    return_timeout_s=sdk.return_.motion_timeout_s,
+                    return_mode=a.return_mode or config["robot"]["return_mode"],
+                )
+                motion = MotionWorker(settings, state.inbox, state.lock)
+                state.attach_motion(motion)
+            else:
+                monitor = SdkMonitor(
+                    state,
+                    config["robot"]["ip"],
+                    roles["remote_local_ip"],
+                    None,
+                    root / "xcore-sdk-python/.follow.lock",
+                )
+                monitor.thread.start()
         try:
             serve(state, roles["bind_host"], roles["controller_port"])
         finally:
             if monitor:
                 monitor.stop.set()
                 monitor.thread.join(5)
+            if motion:
+                motion.close()
 
 
 def main(argv=None):

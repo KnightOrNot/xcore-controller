@@ -29,6 +29,11 @@ def main(argv=None):
     m = r.add_mutually_exclusive_group(required=True)
     m.add_argument("--simulate", action="store_true")
     m.add_argument("--hardware-read-only", action="store_true")
+    m.add_argument(
+        "--hardware",
+        action="store_true",
+        help="motion-capable remote SDK owner; arming is still explicit",
+    )
     subs.add_parser("dataset")
     subs.add_parser("stop-remote")
     subs.add_parser("stop-dataset")
@@ -54,7 +59,9 @@ def main(argv=None):
     ]
     if a.command in ("stop-remote", "stop-dataset"):
         names = (
-            "xcore-controller-readonly.service xcore-controller-simulate.service"
+            "xcore-controller-readonly.service "
+            "xcore-controller-simulate.service "
+            "xcore-controller-hardware.service"
             if a.command == "stop-remote"
             else "xcore-dataset.service"
         )
@@ -114,18 +121,23 @@ def main(argv=None):
         return
     if a.command == "remote":
         port = roles["controller_port"]
-        unit = (
-            "xcore-controller-simulate.service"
-            if a.simulate
-            else "xcore-controller-readonly.service"
-        )
-        other = (
-            "xcore-controller-readonly.service"
-            if a.simulate
-            else "xcore-controller-simulate.service"
-        )
+        if a.simulate:
+            unit = "xcore-controller-simulate.service"
+        elif a.hardware:
+            unit = "xcore-controller-hardware.service"
+        else:
+            unit = "xcore-controller-readonly.service"
+        others = [
+            name
+            for name in (
+                "xcore-controller-readonly.service",
+                "xcore-controller-simulate.service",
+                "xcore-controller-hardware.service",
+            )
+            if name != unit
+        ]
         command = (
-            f"! systemctl --user is-active --quiet {other} && "
+            f"! systemctl --user is-active --quiet {' '.join(others)} && "
             f"systemctl --user start {unit}"
         )
     else:

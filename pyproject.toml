@@ -23,4 +23,10 @@ select = ["E", "F", "I", "B"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-pythonpath = [".", "src", "xcore-adapters/src", "lerobot-converter/src"]
+pythonpath = [
+    ".",
+    "src",
+    "xcore-adapters/src",
+    "lerobot-converter/src",
+    "xcore-sdk-python/src",
+]

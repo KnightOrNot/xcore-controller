@@ -7,10 +7,11 @@ CR7 保持六轴接口。首次完成以下步骤后，每次实验使用文末�
 远程双 D435i 相机可以独立启停，不需要启动跟随，见[相机快速启动](#11-远程双-d435i-相机)。
 后续 AI 协作先阅读 [AGENTS.md](AGENTS.md)，其中记录工程边界、现场配置与当前任务。
 
-**2026-10-22 新架构首阶段**：已实现本地 GELLO 服务、远端 SDK 只读 worker 和数据桥，
-以及远端合成数据 LeRobot 转换／LeLab 浏览／本地拉取；真实跟随和连续真机采集尚未迁移。
+**2026-10-22 新架构进度**：本地 GELLO 服务、远端 SDK 只读 worker、数据桥、
+远端运动 worker／主臂映射／vendor FK 已实现；合成数据 LeRobot 转换、LeLab 浏览和
+本地拉取已验收。远端真机运动、连续多流采集仍需现场验收，不能把代码存在当作已部署。
 新入口、现场硬件检查及剩余工作见 [远端数据阶段说明](docs/REMOTE_DATA_MILESTONE.md)。
-下文原有跟随命令仍使用旧链路，不要与远端 SDK 只读会话同时运行。
+下文原有跟随命令仍使用旧链路，不要与远端 SDK 会话同时运行。
 
 ## 默认配置
 
@@ -39,7 +40,8 @@ adapter 是无设备访问的数据包。新入口环境安装见[首阶段说�
 | `./scripts/stop_camera.sh` | 完全停止双相机远端服务并清理隧道 |
 | `./scripts/start_gello_service.sh` | 新架构本地 GELLO 只读服务，默认不连接 CR7 |
 | `./scripts/start_remote_controller.sh --hardware-read-only` | 启动远端 SDK 只读服务及本地隧道，不支持启用运动 |
-| `./scripts/stop_remote_controller.sh` | 停止新架构远端只读／模拟服务 |
+| `./scripts/start_remote_controller.sh --hardware` | 启动可运动的远端 SDK worker；仍需显式 `arm` |
+| `./scripts/stop_remote_controller.sh` | 停止新架构远端只读／模拟／运动服务 |
 | `./scripts/start_dataset.sh` | 启动远端 LeLab 只读浏览及本地隧道 |
 | `./scripts/stop_dataset.sh` | 停止远端数据浏览服务 |
 | `./scripts/pull_dataset.sh ID REVISION` | 拉取已发布完整数据集、SHA-256 校验及 loader 回读 |
@@ -664,3 +666,27 @@ cam2 测试时有效深度较少，需检查现场朝向／遮挡和距离。
 深度为原生视角，未对齐 RGB；两台没有硬同步，也尚未接入机械臂数据记录。
 完整 CLI、部署和验收边界见 [相机 README](camera-realsense-d435i/README.md) 与
 [相机开发文档](camera-realsense-d435i/docs/DEVELOPMENT.md)。
+
+## 远端运动角色（2026-10-22 阶段 2）
+
+`--hardware` 只负责连接 SDK、读取反馈和准备 FK，**不会自行上电或运动**。
+必须同时运行本地 GELLO 服务和数据桥，远端才能在收到主臂样本后开始跟随：
+
+```bash
+./scripts/start_gello_service.sh
+./scripts/start_remote_controller.sh --hardware
+uv run xcore-controller bridge --leader-url http://127.0.0.1:9011 --remote-url http://127.0.0.1:9012
+```
+
+只读检查：
+
+```bash
+uv run xcore-controller status http://127.0.0.1:9012
+uv run xcore-controller command http://127.0.0.1:9012 pose
+```
+
+`pose` 返回实测关节、vendor FK 的 `pose10`、控制器法兰位姿和两者平移差；
+当前 TCP 是法兰（identity toolset），**不是**已验证的夹爪 TCP。
+`prepare`、`arm`、`exit` 都会引起真实运动，只有在现场确认安全后执行；
+`arm` 前需保持 GELLO 静止并满足对齐门限。运动中断流会锁定并停止跟随，
+重新握手不会自动 arm。

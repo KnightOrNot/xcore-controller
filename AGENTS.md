@@ -716,3 +716,27 @@ Robot／Teleoperator adapter 只附着已有 worker，断开只释放客户端�
   (480,640)`、接收时间单调，测试数据已删除，采集已停止，API 保持 idle。
 - 实测 PNG level 6 的 640×480 RGB 编码约 105 ms／帧，无法满足 15 fps；
   level 1 约 21 ms。不要把压缩级别改回默认值而不重新测试吞吐。
+
+### 阶段 2：远端运动 worker、主臂映射与 FK（代码完成，运动未验收）
+
+- `src/xcore_controller/mapping.py`：在远端完成 tick→rad、连续解缠、标定 offset/sign、
+  2π 分支和毛刺拒绝；本地 GELLO 仍只发送原始 ticks，远端不重复加 offset。
+- `src/xcore_controller/motion.py`：唯一 SDK 线程；显式 `/arm`（新鲜样本＋对齐门限）、
+  `/prepare`（静止采样→NRT 对齐）、`/stop`、`/exit`（按 start/zero/none 返回）和
+  `/pose`（只读 FK）。断流由 `LeaderInbox` 锁定并关闭 RT 会话；重连不自动 arm。
+  目标超过软限位、真机当前超限或步长超限都会在任何运动前拒绝。
+- `src/xcore_controller/kinematics.py`：使用 vendor `model().getCartPose()` 对**实际和
+  目标关节使用同一模型**生成 pose10；TCP 明确标为法兰（identity toolset），
+  没有把法兰静默当作夹爪 TCP。
+- `remote-serve --hardware` 与 `xcore-controller-hardware.service` 安装项已加入
+  `deploy/install_role_services.py`；该 unit **尚未在远端安装**（部署需要用户确认）。
+  本地入口 `start_remote_controller.sh --hardware` 和 `xcore-controller command …` 已实现。
+- 离线验证：controller 67 项测试通过，新增映射、解缠、分支、门限、断流停止、
+  返回模式和 FK 矩阵测试；Ruff 通过（仅检查本次改动文件，仓库另有历史 E501）。
+- 远端只读实测：Python 3.11 环境补装 numpy 2.4.6；copied field calibration to
+  `xcore-sdk-python/config/cr7_calib.json`（Git 忽略）。临时启动 `--hardware`
+  （约 4 秒，随后停止，未创建 unit）：`motion_capable=true`、`state=idle`、
+  `kinematics=vendor_flange_model`、`fk_error=null`；`/pose` 输出合法 pose10，
+  与控制器法兰位姿的平移差约 `[-0.11, +0.20, +0.94] mm`。
+- **未执行 `/prepare`、`/arm`、`/stop` 的真机运动或退出返回**；真实断流停止、
+  对齐运动和 RT 跟随仍需现场人员确认后验收。

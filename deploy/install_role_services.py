@@ -21,6 +21,7 @@ def main():
     names = [
         "xcore-controller-readonly.service",
         "xcore-controller-simulate.service",
+        "xcore-controller-hardware.service",
         "xcore-dataset.service",
     ]
     if args.check_only:
@@ -46,7 +47,7 @@ def main():
             ),
         )
     )
-    for mode in ("readonly", "simulate", "dataset"):
+    for mode in ("readonly", "simulate", "hardware", "dataset"):
         if mode == "dataset":
             name = "xcore-dataset.service"
             command = (
@@ -61,7 +62,10 @@ def main():
             )
         else:
             name = f"xcore-controller-{mode}.service"
-            flag = "--simulate" if mode == "simulate" else "--hardware-read-only"
+            flag = {
+                "simulate": "--simulate",
+                "hardware": "--hardware",
+            }.get(mode, "--hardware-read-only")
             command = f"{sdk_python} -m xcore_controller.cli remote-serve {flag}"
             env = f"Environment=PYTHONPATH={pythonpath}"
         path = units / name

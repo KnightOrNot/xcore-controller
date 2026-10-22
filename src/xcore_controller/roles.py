@@ -76,29 +76,61 @@ class RemoteSession:
         self.inbox = LeaderInbox(timeout)
         self.simulated = simulated
         self.observation = {}
+        self.motion = None
+
+    def attach_motion(self, motion):
+        self.motion = motion
 
     def call(self, command, data):
-        with self.lock:
-            if command == "handshake":
+        # Leader state is small and lock-protected; motion commands are executed
+        # outside this lock because their worker thread also reads the inbox.
+        if command == "handshake":
+            with self.lock:
                 self.inbox.handshake(data["instance"])
-            elif command == "leader":
+        elif command == "leader":
+            with self.lock:
                 # Expiry must latch before a new sample refreshes receive time.
                 try:
                     self.inbox.check()
                 except TimeoutError:
                     pass
                 self.inbox.accept(data)
-            elif command == "arm":
-                if not self.simulated:
-                    raise RuntimeError(
-                        "hardware motion is not implemented/enabled in this milestone"
-                    )
+        elif command == "arm":
+            if self.motion is not None:
+                return self.motion.arm()
+            if not self.simulated:
+                raise RuntimeError("hardware motion is not enabled for this role")
+            with self.lock:
                 self.inbox.arm()
-            elif command == "stop":
+        elif command == "capture-start":
+            if self.motion is None:
+                raise RuntimeError("pose capture requires the motion worker")
+            return self.motion.capture_start()
+        elif command == "pose":
+            if self.motion is None:
+                raise RuntimeError("pose readback requires the motion worker")
+            return self.motion.pose()
+        elif command == "prepare":
+            if self.motion is None:
+                raise RuntimeError("preparation requires the motion worker")
+            return self.motion.prepare()
+        elif command == "return":
+            if self.motion is None:
+                raise RuntimeError("return motion requires the motion worker")
+            return self.motion.return_to(data.get("mode"))
+        elif command == "stop":
+            if self.motion is not None:
+                self.motion.disarm()
+            with self.lock:
                 self.inbox.latched = True
-            else:
-                raise ValueError("unknown command")
-            return self.status()
+        elif command == "exit":
+            if self.motion is None:
+                raise RuntimeError("exit requires the motion worker")
+            self.motion.disarm()
+            return self.motion.return_to(data.get("mode"))
+        else:
+            raise ValueError("unknown command")
+        return self.status()
 
     def status(self):
         with self.lock:
@@ -107,15 +139,18 @@ class RemoteSession:
                 stale = False
             except TimeoutError:
                 stale = True
-            return dict(
+            result = dict(
                 role="remote",
                 simulated=self.simulated,
-                motion_capable=False,
+                motion_capable=self.motion is not None,
                 simulated_armed=not self.inbox.latched,
                 leader_stale=stale,
                 leader_sequence=self.inbox.sequence,
                 observation=self.observation,
             )
+        if self.motion is not None:
+            result["motion"] = self.motion.status()
+        return result
 
 
 class SdkMonitor:
