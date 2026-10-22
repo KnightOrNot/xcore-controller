@@ -60,11 +60,15 @@ camera_ssh_target = "rokae@192.168.2.225"
 ```toml
 [camera]
 snapshot_dir = "captures"
+cam1_url = "http://127.0.0.1:8086"
+cam2_url = "http://127.0.0.1:8087"
 ```
 
 本地截图根目录；最终路径为 `<snapshot_dir>/<cam1|cam2>/<时间戳>/`。
 相机端口、设备 profile 和 serve 默认值属于相机项目自己的
-`camera-realsense-d435i/config/default.toml`。
+`camera-realsense-d435i/config/default.toml`。`cam1_url`/`cam2_url` 是远端角色
+访问本机相机服务的 loopback 地址，必须为 `http://127.0.0.1:<port>`；
+`XCORE_CAM1_URL`、`XCORE_CAM2_URL` 可覆盖。
 
 ## recording
 
@@ -73,12 +77,17 @@ snapshot_dir = "captures"
 raw_data_root = "data/raw"
 lerobot_data_root = "data/lerobot"
 dataset_fps = 30
+raw_fps = 15
+camera_max_frame_age_s = 0.5
 convert = true
 task = "CR7 GELLO teleoperation"
 ```
 
 相对路径基于仓库根目录。`dataset_fps` 是转换后的数据集频率，不是控制频率；
-`convert=false` 等价于 `--skip-conversion`。
+`raw_fps` 是远端实时 raw 采样频率（1..60）；`camera_max_frame_age_s` 是机器人样本
+可引用的最大相机帧龄，超过即判定该 episode 失败。`convert=false` 等价于
+`--skip-conversion`。远端 raw 目录默认是 `$HOME/project/xcore-data/raw`，
+可用 `remote-serve --data-root` 覆盖。
 
 ## paths
 

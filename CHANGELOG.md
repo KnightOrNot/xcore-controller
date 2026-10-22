@@ -8,6 +8,9 @@
 - 新增远端运动角色：`remote-serve --hardware`、显式 `arm/prepare/stop/exit/pose`、
   远端主臂映射（解缠／标定／2π 分支）与 vendor FK pose10；断流锁定、重连不自动 arm。
   真实运动尚未现场验收；`xcore-controller-hardware.service` 安装项已加入部署脚本但未安装。
+- 新增远端 raw 会话：`session/start|stop`、`episode/start|save|discard`，
+  双相机无损帧＋EE10 样本按远端 host 时间对齐，失败片段拒绝提交；
+  xcore-dataset 放宽到 Python 3.11 以便远端 SDK 运行时导入 raw 写入器。
 - 相机子模块升级到 `76d33ac`：同一采集 pipeline 新增无损 RGB／Z16 连续记录，
   有界队列／写盘线程／`COMPLETE.json` 提交标记；真实双机 10 秒各 150 帧零丢帧。
 - 新增 `[robot].return_mode`（`start`/`zero`/`none`），默认 `zero`：

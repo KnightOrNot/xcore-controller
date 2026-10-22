@@ -150,6 +150,10 @@ class MotionWorker:
         self._last_sample_ns: int | None = None
         self._last_state_pose: list[float] | None = None
         self._last_target_pose: list[float] | None = None
+        self._last_feedback_ns: int | None = None
+        self._last_sample: dict[str, Any] | None = None
+        self._soft_lo: Any = None
+        self._soft_hi: Any = None
         self._kinematics: Any = None
         self._fk_error: str | None = None
         self._forwarded = 0
@@ -246,6 +250,11 @@ class MotionWorker:
         return self._call("pose", timeout=10)
 
     # ------------------------------------------------------------------- state
+    def sample(self) -> dict[str, Any] | None:
+        """Latest measured/commanded sample for the recorder; never blocks RT."""
+        with self._lock:
+            return None if self._last_sample is None else dict(self._last_sample)
+
     def status(self) -> dict[str, Any]:
         with self._lock:
             return {
@@ -293,6 +302,14 @@ class MotionWorker:
                 f"refusing to arm: leader/robot difference {math.degrees(error):.1f}° "
                 f"exceeds gate {self.settings.gate_deg}°"
             )
+        limits = driver.limits()
+        from xcore_sdk_python.follow_limits import intersect_soft_limits
+
+        soft_lo, soft_hi = intersect_soft_limits(
+            limits["rad"], enabled=limits["enabled"]
+        )
+        with self._lock:
+            self._soft_lo, self._soft_hi = soft_lo, soft_hi
         with self._inbox_lock:
             # Only an explicit, gate-checked arm unlatches the latest-value inbox.
             self.inbox.arm()
@@ -503,10 +520,16 @@ class MotionWorker:
         try:
             with self._inbox_lock:
                 packet = self.inbox.target()
-            target = self._mapper.feed_ticks(packet["ticks"])
+            requested = self._mapper.feed_ticks(packet["ticks"])
+            with self._lock:
+                lo, hi = self._soft_lo, self._soft_hi
+            if lo is None or hi is None:
+                raise RuntimeError("soft limits were not resolved at arming")
+            target = np.clip(requested, lo, hi)
             bot.command_joint_state(target)
             reason = bot.abort_reason()
             feedback = bot.get_joint_state()
+            feedback_ns = time.monotonic_ns()
         except (TimeoutError, MappingError) as exc:
             self._stop_following(f"leader stream failure: {exc}")
             return
@@ -530,6 +553,21 @@ class MotionWorker:
             self._last_sample_ns = packet.get("source_monotonic_ns")
             self._last_state_pose = state_pose
             self._last_target_pose = target_pose
+            self._last_feedback_ns = feedback_ns
+            self._last_sample = {
+                "timestamp_ns": feedback_ns,
+                "joints_rad": np.asarray(feedback).tolist(),
+                "requested_target_rad": np.asarray(requested).tolist(),
+                "target_rad": np.asarray(target).tolist(),
+                "state_pose10": state_pose,
+                "target_pose10": target_pose,
+                "closure": 0.0,
+                "target_closure": 0.0,
+                "leader_sequence": packet.get("sequence"),
+                "leader_source_monotonic_ns": packet.get("source_monotonic_ns"),
+                "leader_instance": packet.get("instance"),
+                "fk_error": self._fk_error,
+            }
             self._forwarded += 1
         if reason:
             self._stop_following(f"follow aborted: {reason}")

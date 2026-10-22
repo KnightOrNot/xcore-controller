@@ -690,3 +690,34 @@ uv run xcore-controller command http://127.0.0.1:9012 pose
 `prepare`、`arm`、`exit` 都会引起真实运动，只有在现场确认安全后执行；
 `arm` 前需保持 GELLO 静止并满足对齐门限。运动中断流会锁定并停止跟随，
 重新握手不会自动 arm。
+
+## 远端 raw 会话（2026-10-22 阶段 3）
+
+远端运动角色同时提供会话／episode 接口。**只有已 armed 的跟随会话才能开始记录**；
+记录线程按 `recording.raw_fps` 从运动 worker 取最新实测样本，再从两台相机的
+无损记录分支取满足时间顺序的最近帧，写入 `xcore_ee10_rgbd_v1` raw：
+
+- `state`/`action`：同一 vendor FK 模型得到的法兰 pose10（动作是软限位后的接受目标）；
+- 两路 RGB PNG＋两路 uint16 Z16，逐帧帧号、SDK 时间戳和远端接收时间；
+- `wrench` 12 维占位、`wrench_valid=[false,false]`；夹爪闭合度暂为 0，均不冒充实测。
+
+```bash
+# 先按上一节启动 GELLO、远端运动和 bridge，并 arm（真实运动，需现场确认）。
+uv run xcore-controller command http://127.0.0.1:9012 session/start --task "pick and place"
+uv run xcore-controller command http://127.0.0.1:9012 episode/start
+uv run xcore-controller command http://127.0.0.1:9012 episode/save
+# 或 episode/discard --reason "misaligned"; 结束时 session/stop
+```
+
+HTTP 接口（经本地 bridge 或直接调用）：
+
+| 接口 | 行为 |
+| --- | --- |
+| `/session/start` `{"task": "..."}` | 新建 `raw/<session>/session.json` |
+| `/episode/start` | 要求已 armed；启动两台相机无损记录并开始写 raw |
+| `/episode/save` | 停止相机记录、校验完整、写 `COMMITTED.json` |
+| `/episode/discard` | 标记丢弃，保留 `.partial` 和 `DISCARDED.json` |
+| `/session/stop` | 关闭没有活动 episode 的会话 |
+
+相机失败、队列丢帧、FK 缺失、样本或图像超时都会使该 episode 失败；失败后
+`save` 拒绝提交，只能丢弃。raw 目录默认 `$HOME/project/xcore-data/raw`。

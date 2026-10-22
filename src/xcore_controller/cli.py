@@ -44,6 +44,9 @@ def _main(argv=None):
     r.add_argument("--max-speed-deg", type=float)
     r.add_argument("--prepare-speed", type=float)
     r.add_argument("--return-mode", choices=("start", "zero", "none"))
+    r.add_argument("--data-root", type=Path)
+    r.add_argument("--raw-fps", type=float)
+    r.add_argument("--task")
     b = subs.add_parser("bridge")
     b.add_argument("--leader-url", required=True)
     b.add_argument("--remote-url", required=True)
@@ -60,9 +63,16 @@ def _main(argv=None):
             "exit",
             "capture-start",
             "pose",
+            "session/start",
+            "session/stop",
+            "episode/start",
+            "episode/save",
+            "episode/discard",
         ),
     )
     c.add_argument("--return-mode", choices=("start", "zero", "none"))
+    c.add_argument("--task")
+    c.add_argument("--reason")
     a = p.parse_args(argv)
     sys.path.insert(0, str(root / "tools"))
     from config_defaults import load
@@ -74,8 +84,12 @@ def _main(argv=None):
         return
     if a.command == "command":
         payload = {}
-        if a.action in ("exit", "return") and a.return_mode:
+        if a.action == "exit" and a.return_mode:
             payload["mode"] = a.return_mode
+        if a.action == "session/start" and a.task:
+            payload["task"] = a.task
+        if a.action == "episode/discard" and a.reason:
+            payload["reason"] = a.reason
         print(
             json.dumps(
                 request(a.url + "/" + a.action, payload),
@@ -182,6 +196,26 @@ def _main(argv=None):
                 )
                 motion = MotionWorker(settings, state.inbox, state.lock)
                 state.attach_motion(motion)
+                sys.path.insert(0, str(root / "xcore-dataset/src"))
+                from .recording import RecordingSettings, SessionRecorder
+
+                recorder = SessionRecorder(
+                    RecordingSettings(
+                        raw_root=str(
+                            a.data_root
+                            or Path.home() / roles["remote_data_root"] / "raw"
+                        ),
+                        task=a.task or config["recording"]["task"],
+                        fps=a.raw_fps or config["recording"]["raw_fps"],
+                        camera_urls=(
+                            config["camera"]["cam1_url"],
+                            config["camera"]["cam2_url"],
+                        ),
+                        max_frame_age_s=config["recording"]["camera_max_frame_age_s"],
+                    ),
+                    motion,
+                )
+                state.attach_recorder(recorder)
             else:
                 monitor = SdkMonitor(
                     state,

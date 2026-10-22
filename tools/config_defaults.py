@@ -44,11 +44,15 @@ SECTIONS = {
     },
     "camera": {
         "snapshot_dir": "XCORE_CAMERA_SNAPSHOT_DIR",
+        "cam1_url": "XCORE_CAM1_URL",
+        "cam2_url": "XCORE_CAM2_URL",
     },
     "recording": {
         "raw_data_root": "XCORE_RAW_DATA_ROOT",
         "lerobot_data_root": "XCORE_LEROBOT_DATA_ROOT",
         "dataset_fps": "XCORE_DATASET_FPS",
+        "raw_fps": "XCORE_RAW_FPS",
+        "camera_max_frame_age_s": "XCORE_CAMERA_MAX_FRAME_AGE_S",
         "convert": "XCORE_CONVERT",
         "task": "XCORE_TASK",
     },
@@ -168,9 +172,13 @@ def _builtin(section: str, key: str) -> Any:
         ("remote", "gripper_port"): 5005,
         ("remote", "camera_ssh_target"): "rokae@192.168.2.225",
         ("camera", "snapshot_dir"): "captures",
+        ("camera", "cam1_url"): "http://127.0.0.1:8086",
+        ("camera", "cam2_url"): "http://127.0.0.1:8087",
         ("recording", "raw_data_root"): "data/raw",
         ("recording", "lerobot_data_root"): "data/lerobot",
         ("recording", "dataset_fps"): 30,
+        ("recording", "raw_fps"): 15,
+        ("recording", "camera_max_frame_age_s"): 0.5,
         ("recording", "convert"): True,
         ("recording", "task"): "CR7 GELLO teleoperation",
         ("paths", "sdk_project"): "xcore-sdk-python",
@@ -207,6 +215,8 @@ def validate(values: Values) -> None:
         ("robot", "prepare_speed"),
         ("timeouts", "gripper_ready_s"),
         ("roles", "leader_timeout_s"),
+        ("recording", "raw_fps"),
+        ("recording", "camera_max_frame_age_s"),
     }
     for section, keys in SECTIONS.items():
         for key in keys:
@@ -253,6 +263,12 @@ def validate(values: Values) -> None:
     fps = values.get("recording.dataset_fps")
     if not isinstance(fps, int) or fps <= 0:
         raise ValueError("recording.dataset_fps must be a positive integer")
+    raw_fps = values.get("recording.raw_fps")
+    if not isinstance(raw_fps, int) or not 1 <= raw_fps <= 60:
+        raise ValueError("recording.raw_fps must be an integer in 1..60")
+    for key in ("cam1_url", "cam2_url"):
+        if not values.get("camera." + key).startswith("http://127.0.0.1:"):
+            raise ValueError(f"camera.{key} must use remote loopback HTTP")
     if not isinstance(values.get("recording.convert"), bool):
         raise ValueError("recording.convert must be a boolean")
     if not str(values.get("recording.task")).strip():

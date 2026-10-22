@@ -77,9 +77,13 @@ class RemoteSession:
         self.simulated = simulated
         self.observation = {}
         self.motion = None
+        self.recorder = None
 
     def attach_motion(self, motion):
         self.motion = motion
+
+    def attach_recorder(self, recorder):
+        self.recorder = recorder
 
     def call(self, command, data):
         # Leader state is small and lock-protected; motion commands are executed
@@ -128,6 +132,24 @@ class RemoteSession:
                 raise RuntimeError("exit requires the motion worker")
             self.motion.disarm()
             return self.motion.return_to(data.get("mode"))
+        elif command in (
+            "session/start",
+            "session/stop",
+            "episode/start",
+            "episode/save",
+            "episode/discard",
+        ):
+            if self.recorder is None:
+                raise RuntimeError("recording is not enabled for this role")
+            if command == "session/start":
+                return self.recorder.start_session(data.get("task"))
+            if command == "session/stop":
+                return self.recorder.stop_session()
+            if command == "episode/start":
+                return self.recorder.start_episode()
+            if command == "episode/save":
+                return self.recorder.save_episode()
+            return self.recorder.discard_episode(data.get("reason"))
         else:
             raise ValueError("unknown command")
         return self.status()
@@ -150,6 +172,8 @@ class RemoteSession:
             )
         if self.motion is not None:
             result["motion"] = self.motion.status()
+        if self.recorder is not None:
+            result["recording"] = self.recorder.status()
         return result
 
 

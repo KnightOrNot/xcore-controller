@@ -740,3 +740,21 @@ Robot／Teleoperator adapter 只附着已有 worker，断开只释放客户端�
   与控制器法兰位姿的平移差约 `[-0.11, +0.20, +0.94] mm`。
 - **未执行 `/prepare`、`/arm`、`/stop` 的真机运动或退出返回**；真实断流停止、
   对齐运动和 RT 跟随仍需现场人员确认后验收。
+
+### 阶段 3：真实多流 raw 会话与提交协议（代码完成，真机录制未执行）
+
+- `src/xcore_controller/recording.py`：`session/start|stop`、`episode/start|save|discard`。
+  独立记录线程按 `recording.raw_fps` 取运动 worker 最新样本，通过 loopback HTTP
+  读取两台相机已落盘帧索引，按接收时间选择不晚于样本的最近帧，写入
+  `xcore_ee10_rgbd_v1`；`action` 是软限位后的接受目标，`state` 是实测反馈。
+- 开始 episode 要求 `armed=true` 且 FK 可用；相机记录目录在 episode 内
+  （`episode_XXXXXX/cam1|2`），由相机唯一 pipeline 直接写无损 RGB/Z16。
+- 提交复用 xcore-dataset `EpisodeWriter.commit()`：停止相机记录、校验完整、
+  清空写队列、fsync 并最后写 `COMMITTED.json`；任何相机失败、丢帧、FK 缺失或
+  帧龄超限都会让该片段失败且拒绝 `save`。丢弃保留 `.partial` 和 `DISCARDED.json`。
+- xcore-dataset 的 `requires-python` 放宽到 `>=3.11`，使远端 3.11 SDK 运行时可直接
+  导入 raw 写入器；转换环境仍为 3.12。远端 3.11 环境补装 Pillow 12.3.0。
+- controller 离线测试 71 项通过，新增真实文件＋raw 写入器的双相机提交、
+  失败拒绝提交、未 armed 拒绝和 loopback 校验测试。dataset 4 项、adapter 3 项通过。
+- 远端冒烟：session 可创建；未 armed 时 `episode/start` 返回 409 并在创建任何
+  采集前拒绝；测试 session 已删除。**未执行真机 arm、未录制真实 episode。**

@@ -33,11 +33,18 @@ camera_ssh_target = "rokae@192.168.2.225"
 [camera]
 # 本地截图目录；端口与设备 profile 由相机项目自己的 config/default.toml 管理。
 snapshot_dir = "captures"
+# 远端录像服务地址；controller 的远端角色只通过 loopback 访问。
+cam1_url = "http://127.0.0.1:8086"
+cam2_url = "http://127.0.0.1:8087"
 
 [recording]
 raw_data_root = "data/raw"
 lerobot_data_root = "data/lerobot"
 dataset_fps = 30
+# 实时 raw 采样频率；慢于相机 15 fps 时同一图像会被多个样本引用。
+raw_fps = 15
+# 机器人样本可接受的最大相机帧龄（秒）；超过即判定该段采集失败。
+camera_max_frame_age_s = 0.5
 convert = true
 task = "CR7 GELLO teleoperation"
 
