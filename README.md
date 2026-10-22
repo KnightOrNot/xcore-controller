@@ -33,7 +33,9 @@ adapter 是无设备访问的数据包。新入口环境安装见[首阶段说�
 | --- | --- |
 | `./scripts/setup.sh` | 初始化子模块和独立 Python 环境 |
 | `./scripts/start_gello_follow.sh` | 六轴＋夹爪跟随；真实运动需 `--enable-motion` |
-| `./scripts/start_data_record.sh` | 跟随并记录从臂反馈 |
+| `./scripts/start_data_record.sh` | 旧七维跟随记录；加 `--remote` 使用新远端链路 |
+| `./scripts/start_remote_record.sh` | 新链路数采：本地 GELLO＋bridge＋远端 SDK／双相机 |
+| `./scripts/convert_dataset.sh` | 远端转换排队／执行／重试／查看 |
 | `./scripts/start_gripper.sh` | 按需启动远端夹爪服务 |
 | `./scripts/stop_gripper.sh` | 完全停止远端夹爪服务；先结束跟随及退出返回 |
 | `./scripts/start_camera.sh` | 按需启动双相机服务并预览 |
@@ -744,3 +746,42 @@ episode，质量报告逐 episode 保存帧数、时间误差和来源 SHA-256�
 `running` 任务会自动重新排队，staging 改名保留，已发布 revision 不被覆盖。
 2026-10-22 已用远端两 episode 合成会话完成 publish → LeLab／API 读取 →
 本地 `pull_dataset.sh` 校验和 loader 回读（8 帧、2 episodes）。
+
+## 完整数采流程（2026-10-22 阶段 5）
+
+前置：远端已部署 controller 硬件角色（`xcore-controller-hardware.service`，
+disabled，按需启动）、相机服务、3.12 数据环境；本地已安装 controller 环境。
+首次或升级后同步源码／现场标定，不要用 `submodule update --remote` 替换固定版本。
+远端首次安装缺失的 unit（在远端 `~/project/xcore-controller` 执行，需先确认现场部署）：
+
+```bash
+python3 deploy/install_role_services.py --add-missing
+```
+
+该脚本只补缺失 unit（disabled），不会覆盖已有 unit 或启动硬件。
+
+```bash
+# 1. 远端双相机 API 与采集（不启动运动）
+./scripts/start_camera.sh --no-open
+# 2. 本地只读 GELLO 服务（占本地跟随锁）
+./scripts/start_gello_service.sh
+# 3. 远端 SDK owner（只连接和读反馈，不运动）
+./scripts/start_remote_controller.sh --hardware
+# 4. 数采：先确认现场安全，脚本会 prepare→arm，然后 R 开始／S 保存／D 丢弃／Q 退出
+./scripts/start_remote_record.sh --task "pick and place" --enable-motion
+#    或旧入口转发：./scripts/start_data_record.sh --remote --task "…" --enable-motion
+# 5. 会话结束时自动排队转换；也可手动查看／重试
+./scripts/convert_dataset.sh --list
+./scripts/convert_dataset.sh <session_id>
+./scripts/convert_dataset.sh --retry <job_id>
+# 6. 本地按需拉取完整已发布 revision
+./scripts/pull_dataset.sh <dataset_id> <rev-0001>
+# 7. 结束：退出脚本会按 return_mode 返回；然后停止远端服务
+./scripts/stop_remote_controller.sh
+./scripts/stop_dataset.sh
+./scripts/start_camera.sh stop
+```
+
+`start_remote_record.sh` 在未加 `--enable-motion` 时只创建会话、不 arm，也不能开始
+episode；退出会丢弃未保存片段并按配置执行退出返回。`Q`／Ctrl+C 都会清理 bridge，
+不会把未完成片段标记为完整。

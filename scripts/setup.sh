@@ -32,6 +32,15 @@ fi
 [[ -f "$root_dir/config/default.toml" ]] || {
     echo "缺少 controller 默认配置：config/default.toml" >&2; exit 1
 }
+for project in xcore-adapters xcore-dataset; do
+    [[ -d "$root_dir/$project" ]] || {
+        echo "数据子项目尚未初始化：$project（先运行 git submodule update --init）" >&2
+        exit 1
+    }
+done
+[[ -f "$root_dir/xcore-dataset/config/default.toml" ]] || {
+    echo "缺少默认配置：xcore-dataset/config/default.toml" >&2; exit 1
+}
 for project in xcore-sdk-python xcore-gello-software xcore-gripper-2F85 lerobot-converter camera-realsense-d435i; do
     project_dir="$root_dir/$project"
     [[ -f "$project_dir/.python-version" ]] || { echo "子模块尚未初始化：$project" >&2; exit 1; }

@@ -14,6 +14,11 @@ from config_defaults import load  # noqa: E402
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--check-only", action="store_true")
+    parser.add_argument(
+        "--add-missing",
+        action="store_true",
+        help="install only units that do not exist; never replace an existing unit",
+    )
     args = parser.parse_args()
     roles = load().data["roles"]
     home = Path.home()
@@ -28,9 +33,10 @@ def main():
         for name in names:
             print(f"{units / name}: exists={(units / name).exists()}")
         return
-    if any((units / name).exists() for name in names):
+    if not args.add_missing and any((units / name).exists() for name in names):
         raise FileExistsError(
-            "role units already exist; review deployment before replacing"
+            "role units already exist; review deployment before replacing "
+            "(use --add-missing to add only missing units)"
         )
     units.mkdir(parents=True, exist_ok=True)
     runtime = home / "project/xcore-runtime"
@@ -43,6 +49,7 @@ def main():
                 root / "src",
                 root / "xcore-sdk-python/src",
                 home / "project/xcore-adapters/src",
+                home / "project/xcore-dataset/src",
                 runtime / "vendor311",
             ),
         )
@@ -70,6 +77,9 @@ def main():
             env = f"Environment=PYTHONPATH={pythonpath}"
         path = units / name
         if path.exists():
+            if args.add_missing:
+                print(f"{path} exists; kept unchanged")
+                continue
             raise FileExistsError(
                 f"{path} exists; review before replacing a deployment"
             )

@@ -774,3 +774,24 @@ Robot／Teleoperator adapter 只附着已有 worker，断开只释放客户端�
   `READY`/`verify` 通过；远端 `/api/datasets`、`/api/sample` 正常；
   本地 `pull_dataset.sh` 拉取、SHA-256 校验和真实 loader 回读通过（8 帧、2 episodes）。
   该数据明确为合成数据，不是真机采集。
+
+### 阶段 5：本地数采入口、部署与联调（代码完成；真机运动仍未验收）
+
+- 新增 `scripts/start_remote_record.sh`：检查 GELLO／远端角色，启动本地 bridge，
+  `--enable-motion` 时先 `prepare` 再 `arm`（均需现场 y 确认），交互键
+  R/S/D/P/Q；退出丢弃未保存片段、按 `return_mode` 执行返回并停止 session。
+  未加 `--enable-motion` 时只能看状态，不能开始 episode。
+- `scripts/start_data_record.sh --remote` 转发到新入口，旧七维流程保持默认。
+  新增 `scripts/convert_dataset.sh`（queue／`--retry`／`--list`），经 SSH 在 3.12
+  数据环境执行，带 TorchCodec 所需 FFmpeg 环境。
+- `setup.sh --check-only` 增加两个数据子项目及 dataset 配置检查。
+  `deploy/install_role_services.py` 增加 hardware unit 与 `--add-missing`：
+  只补缺失 unit，绝不覆盖已有部署；hardware unit 的 PYTHONPATH 包含
+  `xcore-dataset/src`。**本轮没有在远端安装该 unit**，安装仍需用户确认。
+- xcore-adapters 新增 `AttachedLeader`／`AttachedRobot`：只附着 loopback 上已运行的
+  worker，只读状态／样本，不导入 LeRobot／SDK、不启动硬件、不发运动命令。
+- 联调（无运动）：本地 GELLO 服务＋远端临时 `--hardware`（4 秒后停止）＋SSH 隧道，
+  `start_remote_record.sh` 成功创建 session、未授权运动提示、退出后 session 关闭、
+  bridge 清理、端口释放；测试 session 已删除。真机 arm／episode 采集未执行。
+- 验证：controller 71 项、adapter 5 项、dataset 6 项测试通过；新脚本 shell 语法、
+  `--help`、`convert_dataset.sh --list` 实测通过。

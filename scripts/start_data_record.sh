@@ -3,6 +3,18 @@
 set -Eeuo pipefail
 root_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 
+# --remote selects the new local-GELLO + remote-SDK pipeline; the legacy
+# seven-dimensional local flow remains the default.
+for argument in "$@"; do
+    if [[ "$argument" == --remote ]]; then
+        forwarded=()
+        for value in "$@"; do
+            [[ "$value" == --remote ]] || forwarded+=("$value")
+        done
+        exec "$root_dir/scripts/start_remote_record.sh" "${forwarded[@]}"
+    fi
+done
+
 # 默认参数来自 config/default.toml；已存在的 XCORE_* 环境变量优先。
 config_python="$root_dir/xcore-sdk-python/.venv/bin/python"
 [[ -x "$config_python" ]] || config_python="$(command -v python3 || true)"
