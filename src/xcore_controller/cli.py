@@ -4,6 +4,7 @@ import os
 import sys
 import time
 from pathlib import Path
+from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
 # Motion commands legitimately take minutes; the old fixed 2 s timeout made a
@@ -33,6 +34,9 @@ def request(url, data=None, timeout=2):
     try:
         with urlopen(r, timeout=timeout) as f:
             return json.load(f)
+    except HTTPError as exc:
+        body = exc.read().decode(errors="replace")
+        raise RuntimeError(f"{url}: HTTP {exc.code}: {body}") from exc
     except TimeoutError as exc:
         raise TimeoutError(
             f"{url}: no response within {timeout}s. The command may still be "

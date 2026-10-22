@@ -393,9 +393,11 @@ class MotionWorker:
         raw = self._mapper.rad(samples[-1])
         target = self._mapper.target(raw, feedback)
         self._validate_leg(driver, feedback, target, self.settings.prepare_max_step_deg)
+        self._wait_idle(driver)
         power = driver.call("powerState")
         mode = driver.call("operateMode")
         attempted = False
+        failure = None
         try:
             if float(np.max(np.abs(target - feedback))) <= math.radians(
                 self.settings.prepare_tolerance_deg
@@ -416,9 +418,16 @@ class MotionWorker:
                 target_rad=target.tolist(),
                 mean_leader_rad=mean_raw.tolist(),
             )
+        except BaseException as exc:
+            failure = exc
+            raise
         finally:
             if attempted:
-                _restore(driver, power, mode)
+                try:
+                    _restore(driver, power, mode)
+                except Exception:
+                    if failure is None:
+                        raise
 
     def _do_return(self, payload: dict[str, Any]) -> dict[str, Any]:
         mode = payload.get("mode", "none")
@@ -431,6 +440,7 @@ class MotionWorker:
         if mode == "none":
             return {"returned": False, "mode": mode}
         driver = self._require_driver()
+        self._wait_idle(driver)
         if mode == "zero":
             target = [0.0] * 6
         else:
@@ -443,6 +453,7 @@ class MotionWorker:
         power = driver.call("powerState")
         prior_mode = driver.call("operateMode")
         attempted = False
+        failure = None
         try:
             if float(np.max(np.abs(np.asarray(target) - feedback))) <= math.radians(
                 self.settings.return_tolerance_deg
@@ -459,9 +470,16 @@ class MotionWorker:
                 motion_timeout=self.settings.return_timeout_s,
             )
             return dict(result, returned=True, mode=mode, target_rad=target)
+        except BaseException as exc:
+            failure = exc
+            raise
         finally:
             if attempted:
-                _restore(driver, power, prior_mode)
+                try:
+                    _restore(driver, power, prior_mode)
+                except Exception:
+                    if failure is None:
+                        raise
 
     # ------------------------------------------------------------------ helpers
     def _init_kinematics(self, driver: Any) -> None:
@@ -477,6 +495,17 @@ class MotionWorker:
                 self._fk_error = f"{type(exc).__name__}: {exc}"
             if self.verbose:
                 print(f"FK unavailable; EE10 recording will be invalid: {exc}")
+
+    def _wait_idle(self, driver: Any, timeout: float = 8.0) -> None:
+        deadline = time.monotonic() + timeout
+        while driver.call("operationState") != driver.sdk.OperationState.idle:
+            if time.monotonic() >= deadline:
+                state = driver.call("operationState")
+                raise RuntimeError(
+                    f"robot did not return to idle before motion: {state.name}; "
+                    "check the teach pendant"
+                )
+            time.sleep(0.05)
 
     def _require_driver(self) -> Any:
         with self._lock:

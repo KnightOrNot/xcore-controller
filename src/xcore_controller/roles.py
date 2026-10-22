@@ -268,7 +268,11 @@ class Handler(BaseHTTPRequestHandler):
                 raise ValueError("expected object")
             self.reply(200, self.server.state.call(self.path.strip("/"), data))
         except Exception as e:
-            self.reply(409, {"error": str(e)})
+            print(
+                f"[http] {self.path}: {type(e).__name__}: {e}",
+                flush=True,
+            )
+            self.reply(409, {"error": f"{type(e).__name__}: {e}"})
 
 
 def serve(state, host, port):

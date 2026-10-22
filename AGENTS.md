@@ -834,3 +834,17 @@ Robot／Teleoperator adapter 只附着已有 worker，断开只释放客户端�
   `max(roles.leader_timeout_s, robot.remote_stale_timeout_s)`，让 inbox 与 RT
   看门狗使用同一个 3 s 阈值；只读角色仍保留 0.5 s 的快速状态标记。
 - 远端 unit 已重启；仍需现场重新 arm 验证实际跟随。
+
+### 修复：退出返回 409（2026-10-22 实机）
+
+- 现象：按 Q／退出时打印“退出返回（模式 zero）：真实运动”，随后
+  `urllib.error.HTTPError: HTTP Error 409: Conflict`；机器人未移动。
+- 原因定位困难：CLI 的 `request()` 未读取 HTTP 错误体，服务端也未记录 409 内容。
+  已改为 CLI 抛出 `HTTP x: {body}`，服务端把每个失败命令写进 journal。
+- 最可能的直接原因：`exit` 在 `disarm()` 关闭 RT 后立刻调用 NRT `movej`，
+  而 `RobotDriver.movej` 要求 `operationState == idle`；RT 收尾尚未完成时会被拒绝。
+  现在返回前等待 idle（最多 8 s），超时会明确报出当前 operationState；
+  prepare／return 的 `finally` 不再用清理异常覆盖原始错误。
+- 离线测试：新增“RT 收尾非 idle 时等待后再返回”用例，controller 73 项通过。
+  远端 unit 已重启；退出返回仍需现场确认后重试（zero 模式会让 J1 从约 175° 转回 0°，
+  执行前必须确认该路径安全）。

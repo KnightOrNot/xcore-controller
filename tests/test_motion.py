@@ -208,3 +208,25 @@ def test_return_none_does_not_move(tmp_path):
     assert result["returned"] is False
     assert driver.moves == []
     worker.close()
+
+
+def test_return_waits_for_rt_shutdown_to_reach_idle(tmp_path):
+    class SlowIdleDriver(FakeDriver):
+        def __init__(self):
+            super().__init__()
+            self.non_idle = 3
+
+        def call(self, name):
+            if name == "operationState" and self.non_idle:
+                self.non_idle -= 1
+                return Enum("moving")
+            return super().call(name)
+
+    worker, _, _ = make_worker(tmp_path, return_mode="zero")
+    slow = SlowIdleDriver()
+    slow.values = [0.2] * 6
+    worker._driver = slow
+    result = worker.return_to("zero")
+    assert result["returned"] is True
+    assert slow.moves[-1][0] == [0.0] * 6
+    worker.close()

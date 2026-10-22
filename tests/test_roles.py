@@ -1,6 +1,5 @@
 import threading
 import time
-from urllib.error import HTTPError
 
 import pytest
 
@@ -34,10 +33,10 @@ def test_network_leader_timeout_latches_before_refresh(endpoint):
     p.update(sequence=1, source_monotonic_ns=2)
     request(url + "/leader", p)
     assert not request(url + "/status")["simulated_armed"]
-    with pytest.raises(HTTPError):
+    with pytest.raises(RuntimeError, match="HTTP 409"):
         request(url + "/leader", p)
     state.simulated = False
-    with pytest.raises(HTTPError):
+    with pytest.raises(RuntimeError, match="HTTP 409"):
         request(url + "/arm", {})
 
 
