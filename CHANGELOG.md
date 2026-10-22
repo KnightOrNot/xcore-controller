@@ -5,6 +5,8 @@
 
 ## 2026-10-22
 
+- 相机子模块升级到 `76d33ac`：同一采集 pipeline 新增无损 RGB／Z16 连续记录，
+  有界队列／写盘线程／`COMPLETE.json` 提交标记；真实双机 10 秒各 150 帧零丢帧。
 - 新增 `[robot].return_mode`（`start`/`zero`/`none`），默认 `zero`：
   退出时返回六轴 0°；`start` 在启动前记录当前从臂实际姿态并返回该姿态，
   `none` 禁用返回。`--return-mode` 可覆盖。
