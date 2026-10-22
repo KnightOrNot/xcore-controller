@@ -531,7 +531,16 @@ class MotionWorker:
             feedback = bot.get_joint_state()
             feedback_ns = time.monotonic_ns()
         except (TimeoutError, MappingError) as exc:
-            self._stop_following(f"leader stream failure: {exc}")
+            with self._inbox_lock:
+                age = (
+                    (time.monotonic_ns() - self.inbox.received_ns) / 1e9
+                    if self.inbox.received_ns
+                    else -1
+                )
+            self._stop_following(
+                f"leader stream failure after {age:.2f}s without a sample "
+                f"(timeout {self.settings.stale_timeout_s:.1f}s): {exc}"
+            )
             return
         except Exception as exc:  # noqa: BLE001 - never let the loop die silently
             self._stop_following(f"target dispatch failed: {type(exc).__name__}: {exc}")

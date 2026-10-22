@@ -17,12 +17,15 @@ controller 默认配置位于 [config/default.toml](../../config/default.toml)�
 ip = "192.168.2.160"
 follow_max_speed_deg = 75
 prepare_speed = 4000
+remote_stale_timeout_s = 3.0
 return_mode = "zero"
 ```
 
 - `ip`：CR7 控制器地址，不是 Linux 服务机。
 - `follow_max_speed_deg`：六轴实时跟随软件限速，必须 `0 < v <= 75`。
 - `prepare_speed`：启动对齐的 SDK 速度参数（mm/s），与轴速度不是同一量纲。
+- `remote_stale_timeout_s`：远端 HTTP 数据桥允许的无新样本时间（0.5..10 s）。
+  机器人保持最后目标，超时后停止并锁定；1 s 对跨机 HTTP/GIL 抖动过紧。
 - `return_mode`：退出返回目标，取值为：
   - `zero`（默认）：返回六轴 0°；
   - `start`：每次启动跟随／记录前记录当前从臂实际姿态，退出时返回该姿态；

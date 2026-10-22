@@ -33,6 +33,7 @@ SECTIONS = {
         "ip": "XCORE_ROBOT_IP",
         "follow_max_speed_deg": "XCORE_FOLLOW_MAX_SPEED_DEG",
         "prepare_speed": "XCORE_PREPARE_SPEED",
+        "remote_stale_timeout_s": "XCORE_REMOTE_STALE_TIMEOUT_S",
         "return_mode": "XCORE_RETURN_MODE",
     },
     "gello": {"port": "XCORE_GELLO_PORT"},
@@ -165,6 +166,7 @@ def _builtin(section: str, key: str) -> Any:
         ("robot", "ip"): "192.168.2.160",
         ("robot", "follow_max_speed_deg"): 75,
         ("robot", "prepare_speed"): 4000,
+        ("robot", "remote_stale_timeout_s"): 3.0,
         ("robot", "return_mode"): "zero",
         ("gello", "port"): "",
         ("remote", "gripper_host"): "192.168.2.225",
@@ -213,6 +215,7 @@ def validate(values: Values) -> None:
     numeric = {
         ("robot", "follow_max_speed_deg"),
         ("robot", "prepare_speed"),
+        ("robot", "remote_stale_timeout_s"),
         ("timeouts", "gripper_ready_s"),
         ("roles", "leader_timeout_s"),
         ("recording", "raw_fps"),
@@ -238,10 +241,12 @@ def validate(values: Values) -> None:
                 and (section, key) != ("gello", "port")
             ):
                 raise ValueError(f"{section}.{key} must be non-empty")
-    for key in ("follow_max_speed_deg", "prepare_speed"):
+    for key in ("follow_max_speed_deg", "prepare_speed", "remote_stale_timeout_s"):
         value = values.get(f"robot.{key}")
         if not isinstance(value, (int, float)) or value <= 0:
             raise ValueError(f"robot.{key} must be positive")
+    if not 0.5 <= values.get("robot.remote_stale_timeout_s") <= 10:
+        raise ValueError("robot.remote_stale_timeout_s must be in 0.5..10")
     if values.get("robot.follow_max_speed_deg") > 75:
         raise ValueError("robot.follow_max_speed_deg is limited to 75 deg/s")
     mode = values.get("robot.return_mode")

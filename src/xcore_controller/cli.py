@@ -133,11 +133,15 @@ def _main(argv=None):
                 sample = request(a.leader_url + "/sample")
                 if sample["instance"] != instance:
                     request(
-                        a.remote_url + "/handshake", {"instance": sample["instance"]}
+                        a.remote_url + "/handshake",
+                        {"instance": sample["instance"]},
+                        timeout=5,
                     )
                     instance, seq = sample["instance"], -1
                 if sample["sequence"] > seq:
-                    request(a.remote_url + "/leader", sample)
+                    # A slow post must not kill the bridge; the remote has its
+                    # own stale timeout and latches until an explicit re-arm.
+                    request(a.remote_url + "/leader", sample, timeout=5)
                     seq = sample["sequence"]
             except Exception:
                 # Never retry a queued old motion target after a broken link.
@@ -195,6 +199,9 @@ def _main(argv=None):
                 if not calib.is_absolute():
                     # SDK-relative file, exactly like the direct follow CLI.
                     calib = Path(sdk_config).resolve().parent.parent / calib
+                # The leader arrives over HTTP, not a local serial loop; give the
+                # server threads more GIL slices and tolerate short stalls.
+                sys.setswitchinterval(0.0005)
                 settings = MotionSettings(
                     ip=config["robot"]["ip"],
                     local_ip=roles["remote_local_ip"],
@@ -205,7 +212,10 @@ def _main(argv=None):
                     else config["robot"]["follow_max_speed_deg"],
                     accel_deg_s2=sdk.server.accel_deg_s2,
                     control_hz=sdk.server.state_hz,
-                    stale_timeout_s=sdk.server.stale_timeout_s,
+                    stale_timeout_s=max(
+                        sdk.server.stale_timeout_s,
+                        config["robot"]["remote_stale_timeout_s"],
+                    ),
                     gate_deg=sdk.server.gate_deg,
                     prepare_speed=a.prepare_speed
                     if a.prepare_speed is not None

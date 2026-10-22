@@ -169,12 +169,16 @@ class RemoteSession:
                 stale = False
             except TimeoutError:
                 stale = True
+            age = None
+            if self.inbox.received_ns:
+                age = (time.monotonic_ns() - self.inbox.received_ns) / 1e9
             result = dict(
                 role="remote",
                 simulated=self.simulated,
                 motion_capable=self.motion is not None,
                 simulated_armed=not self.inbox.latched,
                 leader_stale=stale,
+                leader_age_s=age,
                 leader_sequence=self.inbox.sequence,
                 observation=self.observation,
             )

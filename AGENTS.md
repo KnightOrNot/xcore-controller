@@ -811,3 +811,19 @@ Robot／Teleoperator adapter 只附着已有 worker，断开只释放客户端�
   数采脚本在 prepare 前打印等待提示，不再让操作者误以为卡住或失败。
 - 运维规则：任何客户端超时都不能当作远端已取消；先查 `/status` 和实测位姿，
   不要立即重复发送运动命令。若已对齐，下一次 prepare 会在容差内直接跳过。
+
+### 修复：arm 后 1 秒内断流误停（2026-10-22 实机）
+
+- 现象：脚本显示“会话已创建”，但机械臂不跟随；`/status` 为
+  `state=stopped`、`armed=false`、`forwarded=5`，原因
+  `leader stream failure: leader stream stale; explicit re-arm required`。
+- 诊断：远端已成功进入 RT（日志显示 ①～⑪ 全部完成、真实跟随启动），但主臂样本经
+  本地 HTTP bridge 跨 SSH 到达；RT 回调 1 kHz＋25 Hz 伺服线程运行后约 1 秒内没有
+  `/leader` 被接收，`LeaderInbox` 的 1.0 s 超时把跟随停掉。机器人只保持最后目标，
+  没有失控运动。旧客户端 2 s 超时和中断的 bridge 会放大该问题。
+- 修复：controller 新增 `[robot].remote_stale_timeout_s`，默认 **3.0 s**
+  （范围 0.5..10）；远端 hardware 角色设置 `sys.setswitchinterval(0.0005)`
+  降低 RT 线程对 HTTP 线程的 GIL 饥饿；bridge POST 超时放宽到 5 s；
+  `/status` 增加 `leader_age_s`，停止原因记录实际断流秒数。
+- 验证：离线 72 项测试通过，远端 unit 已重启加载新配置。**仍需现场重新 arm 验证**；
+  若再次停止，先看 `leader_age_s` 和日志中的实际断流秒数，不要立即重复发 arm。
