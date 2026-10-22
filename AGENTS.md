@@ -799,3 +799,15 @@ Robot／Teleoperator adapter 只附着已有 worker，断开只释放客户端�
   bridge 清理、端口释放；测试 session 已删除。真机 arm／episode 采集未执行。
 - 验证：controller 71 项、adapter 5 项、dataset 6 项测试通过；新脚本 shell 语法、
   `--help`、`convert_dataset.sh --list` 实测通过。
+
+### 修复：长时运动命令的 HTTP 客户端超时（2026-10-22 实机）
+
+- 现场启动跟随时报错：`prepare` 在远端执行 NRT 对齐，客户端 `urlopen` 固定 2 s
+  超时先返回 Traceback，脚本中止；**远端仍继续完成对齐**，机器人实际移动到了
+  对齐姿态（实测 J≈[175.6, 3.8, 6.8, 5.9, 5.0, 3.3]°），但未执行 `arm`，
+  运动中状态为 idle/unarmed，没有遗留跟随会话。
+- 修复：CLI 按动作设置超时（`prepare`／`exit`／`return` 900 s，`arm` 60 s，
+  `episode/save` 600 s 等），超时错误提示“远端可能仍在执行，先查 status”；
+  数采脚本在 prepare 前打印等待提示，不再让操作者误以为卡住或失败。
+- 运维规则：任何客户端超时都不能当作远端已取消；先查 `/status` 和实测位姿，
+  不要立即重复发送运动命令。若已对齐，下一次 prepare 会在容差内直接跳过。

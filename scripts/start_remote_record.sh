@@ -99,8 +99,10 @@ if [[ "$enable_motion" == true ]]; then
         exit 1
     fi
     if [[ "$prepare" == true ]]; then
+        echo "正在对齐（prepare），可能需要数分钟；此终端会等待，请勿关闭。"
         remote_call prepare | json
     fi
+    echo "对齐完成，正在 arm（进入实时跟随）。"
     remote_call arm | json
     armed=true
 fi

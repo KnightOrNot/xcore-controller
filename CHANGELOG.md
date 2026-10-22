@@ -17,6 +17,8 @@
 - 新增 `start_remote_record.sh`、`start_data_record.sh --remote` 和
   `convert_dataset.sh`；部署脚本支持添加缺失的 hardware unit；
   xcore-adapters 新增只读附着客户端。
+- 修复长时运动命令被 2 秒 HTTP 超时误判为失败的问题：按动作设置超时，
+  `prepare`／`exit` 等可等待数分钟；超时提示先检查远端状态。
 - 相机子模块升级到 `76d33ac`：同一采集 pipeline 新增无损 RGB／Z16 连续记录，
   有界队列／写盘线程／`COMPLETE.json` 提交标记；真实双机 10 秒各 150 帧零丢帧。
 - 新增 `[robot].return_mode`（`start`/`zero`/`none`），默认 `zero`：

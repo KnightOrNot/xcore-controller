@@ -6,15 +6,38 @@ import time
 from pathlib import Path
 from urllib.request import Request, urlopen
 
+# Motion commands legitimately take minutes; the old fixed 2 s timeout made a
+# running prepare look like a failure and aborted the launcher before arm.
+COMMAND_TIMEOUTS = {
+    "prepare": 900,
+    "exit": 900,
+    "return": 900,
+    "arm": 60,
+    "stop": 60,
+    "pose": 15,
+    "capture-start": 15,
+    "episode/start": 90,
+    "episode/save": 600,
+    "episode/discard": 90,
+    "session/start": 30,
+    "session/stop": 90,
+}
 
-def request(url, data=None):
+
+def request(url, data=None, timeout=2):
     r = Request(
         url,
         data=None if data is None else json.dumps(data).encode(),
         headers={"Content-Type": "application/json"},
     )
-    with urlopen(r, timeout=2) as f:
-        return json.load(f)
+    try:
+        with urlopen(r, timeout=timeout) as f:
+            return json.load(f)
+    except TimeoutError as exc:
+        raise TimeoutError(
+            f"{url}: no response within {timeout}s. The command may still be "
+            "running on the remote controller; check `status` before retrying."
+        ) from exc
 
 
 def _main(argv=None):
@@ -92,7 +115,11 @@ def _main(argv=None):
             payload["reason"] = a.reason
         print(
             json.dumps(
-                request(a.url + "/" + a.action, payload),
+                request(
+                    a.url + "/" + a.action,
+                    payload,
+                    timeout=COMMAND_TIMEOUTS.get(a.action, 30),
+                ),
                 ensure_ascii=False,
                 indent=2,
             )
