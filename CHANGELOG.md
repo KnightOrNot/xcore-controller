@@ -3,6 +3,13 @@
 本文件记录 controller 及顶层入口的行为变化。子项目的详细变更见各自的
 `CHANGELOG.md`。
 
+## 2026-10-22
+
+- 新增 `[robot].return_mode`（`start`/`saved`/`zero`/`none`），默认 `start`：
+  启动跟随或记录前记录当前从臂实际姿态，退出（Ctrl+C、SIGTERM、正常结束、故障）时
+  自动返回该姿态。`--return-mode` 可覆盖，`none`/`--no-return` 禁用返回。
+- 同步更新 README、配置/CLI 文档和 AGENTS；未改变现场固定姿态文件。
+
 ## 2026-10-21
 
 - 配置审查修复：连续截图使用独立时间戳目录；夹爪端口传递到跟随入口；校验非法端口、类型及非有限数值，工具支持 XCORE_CONFIG。

@@ -26,8 +26,13 @@
 | `--arm-only` | 只跟随六轴，不连接夹爪 |
 | `--max-speed-deg` | `config` 中 `robot.follow_max_speed_deg`，上限 75 |
 | `--prepare-speed` | 启动对齐 SDK 速度参数（mm/s），默认 4000 |
-| `--return-pose-file` | 退出返回姿态，默认 `xcore-sdk-python/config/exit_pose.json` |
-| `--no-return` | 禁止退出返回运动 |
+| `--return-mode start\|saved\|zero\|none` | 退出返回目标；默认取 `robot.return_mode`（`start`） |
+| `--return-pose-file` | `saved` 模式的固定姿态文件，默认 `xcore-sdk-python/config/exit_pose.json` |
+| `--no-return` | 禁止退出返回运动，等价于 `--return-mode none` |
+
+`start` 模式在启动对齐前读取当前从臂六轴反馈，写入本次会话的
+`logs/follow-*/exit_pose.json`；Ctrl+C、SIGTERM、正常结束和故障退出都返回该姿态。
+`zero` 模式使用六轴 0° 目标。`saved` 模式沿用现场固定姿态文件。只读预览不返回。
 
 ### start_data_record.sh
 
@@ -40,9 +45,11 @@
 | `--skip-conversion` | 只保存 raw |
 | `--gripper-host HOST` | 远端夹爪主机 |
 | `--start-recording` | 对齐后立即开始 episode |
+| `--return-mode` / `--return-pose-file` / `--no-return` | 与跟随入口相同 |
 
 R 开始、S 保存、D 丢弃、P 状态、H 帮助。未保存片段保留 `.partial`。
-其余跟随参数原样传给统一入口。
+其余跟随参数原样传给统一入口。退出返回模式默认同样取 `robot.return_mode`；
+`start` 模式在记录开始前采集姿态，退出时返回该姿态。
 
 ### start_gripper.sh / stop_gripper.sh
 

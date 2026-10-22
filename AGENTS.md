@@ -125,13 +125,18 @@ unit 停止，不要通过反复重启或改用其他串口“修复”，也不
   无条件 ±2π 包装来“修复”。实际关节空间和现场标定必须明确。
 - `config/cr7_calib.json` 为现场标定，通常被 Git 忽略；新 clone 不能凭空运行真机跟随。
   启动对齐需要保持主臂不动；旧会话完全退出前不能启动第二个会话。
-- 退出行为已从六轴回零改为返回用户指定的实测姿态；现场文件
-  `xcore-sdk-python/config/exit_pose.json`，可用 `XCORE_EXIT_POSE`／`--return-pose-file` 覆盖。
-  当前保存角度（°）约为 `[179.1866, 26.4200, -73.5113, 5.7521, -78.9521, -0.3129]`。
-  文件来自 2026-10-21 实际反馈；它不是每次退出时重新采集的起点。
-  `return-pose` 是规范命令；兼容 `return-zero` 的历史入口也要核实当前代码语义，
-  只有显式 `--zero` 才要求六轴 0°。新 clone 应先提供自己的有效返回姿态，不能静默退回零位。
-  `--no-return` 可禁止自动返回；退出返回本身是真实运动。
+- 退出返回由 `config/default.toml` 的 `[robot].return_mode` 控制，默认 `start`：
+  - `start`：每次启动跟随／记录、进入对齐前，用只读 `capture-pose` 记录当前六轴实际姿态；
+    Ctrl+C、SIGTERM、正常结束和故障退出都返回该姿态。目标写入会话
+    `logs/follow-*/exit_pose.json`，不修改现场 `config/exit_pose.json`。
+  - `saved`：返回 `xcore-sdk-python/config/exit_pose.json` 的固定姿态，可用
+    `XCORE_EXIT_POSE`／`--return-pose-file` 覆盖。当前保存角度（°）约为
+    `[179.1866, 26.4200, -73.5113, 5.7521, -78.9521, -0.3129]`。
+  - `zero`：返回六轴 0°；`none`：不自动返回，等价于 `--no-return`。
+  - 命令行 `--return-mode`／`XCORE_RETURN_MODE` 优先于配置文件。`start` 采集失败
+    必须在任何运动前中止；只读预览不返回。返回本身是真实运动。
+  - `return-pose` 是规范命令；`return-zero` 是兼容别名，只有显式 `--zero` 才要求
+    六轴 0°。直接调用 SDK 启动器时 `return_mode` 默认 `saved`，保持旧行为。
 - 夹爪源码 `xcore-gripper-2F85` **有用**：是协议和服务实现、部署来源，
   不是应删除的重复目录。远端 `xcore-gripper-follow` 是部署项目，提供夹爪反馈、
   连续目标跟随、停止和流状态；不控制 CR7 六轴，不采集 GELLO，不提供相机功能。
@@ -675,3 +680,19 @@ Robot／Teleoperator adapter 只附着已有 worker，断开只释放客户端�
 后停止。本次交接不继续推进以上待办。先推送两子仓库，再推送父仓库 gitlink；
 运行环境、现场数据及既有五个 submodule 不纳入本轮代码改动。
 本轮新增子模块基线：xcore-adapters `779b25b`、xcore-dataset `369ca4c`。
+
+## 退出返回模式交接（2026-10-22）
+
+- controller `config/default.toml` 新增 `[robot].return_mode`，默认 `start`：
+  启动跟随／记录前通过只读 `xcore capture-pose` 记录当前六轴反馈，退出时返回该姿态。
+  可选 `saved`、`zero`、`none`；命令行 `--return-mode` 和 `XCORE_RETURN_MODE` 优先。
+- SDK 新增 `capture-pose --save FILE [--zero]`：前者只读记录当前反馈，后者生成零位目标
+  且不连接设备；文件仍为 `schema_version=1`、匹配 `robot_ip` 和六个 `joints_rad`。
+- SDK 启动器新增 `--return-mode`；正常客户端退出、SIGTERM 与 Ctrl+C 都会请求返回，
+  只读预览不返回。会话目标写入 `logs/follow-*/exit_pose.json`；`saved` 模式的
+  `--return-pose-file` 仅在 `saved` 下生效。
+- 已更新 controller README、`docs/index.md`、`docs/reference/{cli,config}.md`、
+  SDK `docs/reference/{cli,config}.md` 和两处 CHANGELOG。
+- 离线验证：SDK 跟随启动器 48 项（含 start/zero/none/非法模式）和 CLI capture-pose
+  测试通过；controller 配置测试与完整离线测试通过。未上电、未启动跟随、
+  未执行退出返回，真机返回路径仍需现场验收。

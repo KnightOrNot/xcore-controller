@@ -44,8 +44,11 @@ R=开始，S=保存，D=丢弃，P=状态，H=帮助；Ctrl+C 停止跟随、返
   --gripper-host HOST        默认 192.168.2.225，可用 XCORE_GRIPPER_HOST 覆盖
   --start-recording          对齐后立即开始 episode 0
   --show-state               循环打印状态；默认关闭，记录与故障检查不受影响
-  --return-pose-file FILE     指定退出返回姿态，默认使用 SDK config/exit_pose.json
-  --no-return                禁用退出返回；--no-return-zero 是兼容别名
+  --return-mode MODE          退出返回模式：start=启动前实际姿态（config 默认）、
+                              saved=SDK config/exit_pose.json、zero=六轴 0°、none=不返回
+  --return-pose-file FILE     指定退出返回姿态（仅 saved 模式）
+  --no-return                禁用退出返回；等价于 --return-mode none
+                             --no-return-zero 是兼容别名
 其余 --ip、--local-ip、--gello-port、--calib、--hz、--prepare-*、--skip-prepare、
 --calibrate-zero、--gripper-*、--record-*、--yes
 参数传给统一跟随入口；无需另外运行 start_gello_follow.sh。
@@ -88,7 +91,7 @@ while (( $# )); do
         --task) task="${2:?缺少任务}"; shift 2 ;;
         --gripper-host) gripper_host="${2:?缺少夹爪地址}"; shift 2 ;;
         --start-recording|--yes|--skip-prepare|--calibrate-zero|--show-state|--no-return|--no-return-zero) follow_options+=("$1"); shift ;;
-        --return-pose-file|--ip|--local-ip|--gello-port|--calib|--port|--hz|--max-speed-deg|--prepare-speed|--prepare-motion-timeout|--prepare-max-step-deg|--record-queue-size|--record-feedback-max-age|--gripper-port|--gripper-id|--gripper-open-deg|--gripper-close-deg|--gripper-open-pos|--gripper-closed-pos|--gripper-hz|--gripper-speed|--gripper-force|--gripper-timeout|--gripper-stale-timeout)
+        --return-mode|--return-pose-file|--ip|--local-ip|--gello-port|--calib|--port|--hz|--max-speed-deg|--prepare-speed|--prepare-motion-timeout|--prepare-max-step-deg|--record-queue-size|--record-feedback-max-age|--gripper-port|--gripper-id|--gripper-open-deg|--gripper-close-deg|--gripper-open-pos|--gripper-closed-pos|--gripper-hz|--gripper-speed|--gripper-force|--gripper-timeout|--gripper-stale-timeout)
             [[ $# -ge 2 ]] || { echo "$1 缺少参数" >&2; exit 2; }
             follow_options+=("$1" "$2"); shift 2 ;;
         -h|--help) usage; exit 0 ;;

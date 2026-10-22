@@ -12,6 +12,13 @@ ip = "192.168.2.160"
 follow_max_speed_deg = 75
 # 启动对齐使用的 SDK 速度参数（mm/s），不是轴速度。
 prepare_speed = 4000
+# 退出返回模式：
+#   start = 每次启动跟随／记录前记录当前从臂实际姿态，退出时返回该姿态（默认）
+#   saved = 返回 xcore-sdk-python/config/exit_pose.json 的固定姿态
+#   zero  = 返回六轴 0°
+#   none  = 不自动返回（等价于 --no-return）
+# 命令行 --return-mode 优先；也可用 XCORE_RETURN_MODE 覆盖。
+return_mode = "start"
 
 [gello]
 port = "/dev/serial/by-id/usb-FTDI_USB__-__Serial_Converter_FTB4C7PQ-if00-port0"

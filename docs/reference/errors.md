@@ -34,9 +34,18 @@ python3 tools/config_defaults.py --json
 
 ## 退出没有回到零位
 
-这是预期行为：退出返回的是实测保存姿态，不是六轴 0°。使用
-`--return-pose-file` 指定现场姿态；只有显式 `--zero` 才返回六轴零位。
-新 clone 没有有效姿态文件时应明确报错，而不是静默退回零位。
+这是预期行为。返回目标由 `[robot].return_mode` 决定：默认 `start` 返回本次启动前
+记录的实际姿态；`saved` 返回固定姿态文件；只有 `zero` 才回六轴 0°。
+`none`／`--no-return` 不返回。新 clone 在 `saved` 模式下没有有效姿态文件时应明确报错，
+而不是静默退回零位。
+
+## 返回模式无效或采集姿态失败
+
+`返回模式必须是 start、saved、zero 或 none` 表示 `--return-mode` 或
+`XCORE_RETURN_MODE` 拼写错误，会在任何硬件操作前退出。
+`start` 模式在启动对齐前调用 `xcore capture-pose`；如果 CR7 不可达、反馈不足六轴
+或会话被占用，会在运动前中止，不会退回零点。先只读检查 `xcore status` 和
+`xcore joints`，再重试。
 
 ## 保存后没有数据集
 

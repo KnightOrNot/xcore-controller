@@ -489,39 +489,54 @@ exit
 `--arm-only` 不能与 `--gripper-host` 同用。
 默认只输出启动、错误及停止信息，需要连续状态时加 `--show-state`。
 
-**结束实验：按 Ctrl+C，等待六轴返回保存姿态后退出。** 脚本先停止跟随和夹爪、
-关闭实时／准备 SDK 会话，再返回 `xcore-sdk-python/config/exit_pose.json` 的六轴绝对角度。
-2026-10-21 16:18:43 通过正在运行的跟随服务读取 CR7 实际反馈，已保存为本机固定退出目标（度）：
+**结束实验：按 Ctrl+C，等待六轴返回后退出。** 脚本先停止跟随和夹爪、
+关闭实时／准备 SDK 会话，再执行退出返回。返回目标由 `config/default.toml` 的
+`[robot].return_mode` 控制，默认 `start`：
+
+| `return_mode` | 退出返回目标 |
+| --- | --- |
+| `start`（默认） | 每次启动跟随／记录前通过只读反馈记录当前六轴姿态；安全退出、主动退出和故障退出都返回该姿态 |
+| `saved` | 返回 `xcore-sdk-python/config/exit_pose.json` 的固定姿态（旧行为） |
+| `zero` | 返回六轴 0° |
+| `none` | 不自动返回，等价于 `--no-return` |
+
+命令行 `--return-mode start|saved|zero|none` 优先于配置文件；也可设置
+`XCORE_RETURN_MODE` 覆盖。`start` 模式在启动对齐前采集姿态，写入本次会话的
+`logs/follow-*/exit_pose.json`，不会修改 `config/exit_pose.json`，也不会在失败时
+退回零点。启动采集失败会在任何运动前中止。
+`saved` 模式使用固定现场姿态。2026-10-21 16:18:43 保存的角度（度）为：
 
 ```text
 J1          J2         J3          J4        J5          J6
 179.186600  26.419991  -73.511266  5.752057  -78.952135  -0.312863
 ```
 
-这组姿态固定保存，不在每次启动时重新采集。现场 JSON 不随 Git 提交，新机器应恢复本机配置，
-或在配置完成前用 `--no-return` 禁用退出运动。可用 `--return-pose-file PATH`／`XCORE_EXIT_POSE`
-覆盖文件；文件包含 `schema_version: 1`、匹配的 `robot_ip` 和六个有限 `joints_rad`。
-开启自动返回时，缺失或无效文件会在连接设备前拒绝启动。每次会话保存独立的
-`logs/follow-*/exit_pose.json` 快照，退出时使用该快照；结果保存为 `return-pose.json`。
-返回速度与等待时间沿用 `--prepare-speed`（默认 `4000 mm/s`）和 `--prepare-motion-timeout`
-（默认 `600 s`）；完成后恢复返回前的电源状态和模式。夹爪保持停止，不自动开爪。
-确认返回路径可用；返回期间再次 Ctrl+C 会请求停止并等待 SDK 关闭。
+`saved` 文件可用 `--return-pose-file PATH`／`XCORE_EXIT_POSE` 覆盖，包含
+`schema_version: 1`、匹配的 `robot_ip` 和六个有限 `joints_rad`；缺失或无效文件会在
+连接设备前拒绝启动。`start` 和 `zero` 模式不需要该文件。
+每次会话仍保存独立的 `logs/follow-*/exit_pose.json` 快照；返回结果保存为
+`return-pose.json`。返回速度与等待时间沿用 `--prepare-speed`（默认 `4000 mm/s`）和
+`--prepare-motion-timeout`（默认 `600 s`）；完成后恢复返回前的电源状态和模式。
+夹爪保持停止，不自动开爪。确认返回路径可用；返回期间再次 Ctrl+C 会请求停止并等待 SDK 关闭。
 
-**故障退出也默认尝试返回该姿态。** 先停止跟随并关闭记录、释放 SDK，再尝试一次实时故障恢复。
+**故障退出也默认尝试返回同一目标。** 先停止跟随并关闭记录、释放 SDK，再尝试一次实时故障恢复。
 故障返回完成后下电、切手动模式，不自动重启跟随，保留原始非零退出码。
 急停、安全门、其他非空闲状态、超限、恢复失败或再次触发保护时停止并报错，
 不自动复位急停、不关闭碰撞检测、不循环尝试恢复。
-只读预览、SIGTERM 和强制终止 SDK 子进程不执行返回；返回期间不要另开 SDK 会话。
-仅希望停止并保持当前姿态时，使用 `--no-return`（旧 `--no-return-zero` 仍兼容）：
+只读预览不执行返回；跟随运行期间的 Ctrl+C、SIGTERM、正常结束和故障退出都会请求返回；
+强制终止 SDK 子进程会跳过返回。返回期间不要另开 SDK 会话。
+仅希望停止并保持当前姿态时，使用 `--return-mode none` 或 `--no-return`
+（旧 `--no-return-zero` 仍兼容）：
 
 ```bash
 ./scripts/start_gello_follow.sh --enable-motion --no-return
-./scripts/start_data_record.sh --task "pick up the object" --no-return
+./scripts/start_data_record.sh --task "pick up the object" --return-mode none
 ```
 
 独立 SDK 命令为 `uv run --project xcore-sdk-python xcore-sdk-python return-pose`。
-如需六轴真正全零，必须显式使用 `return-pose --zero`。已运行的旧启动器使用
-`return-zero` 兼容入口，也会读取已保存的默认退出姿态；该旧进程的终端文案可能仍写“回零”。
+如需六轴真正全零，必须显式使用 `return-pose --zero`；启动器可用
+`--return-mode zero`。已运行的旧启动器使用 `return-zero` 兼容入口，也会读取已保存的
+默认退出姿态；该旧进程的终端文案可能仍写“回零”。
 
 紧急情况使用设备硬件急停；终端退出不能替代硬件急停。
 
@@ -542,7 +557,7 @@ export XCORE_GELLO_PORT=/dev/serial/by-id/usb-FTDI_USB__-__Serial_Converter_FTB4
 
 # 3. 主臂保持期望姿态；输入 y，等待对齐完成再移动主臂
 ./scripts/start_gello_follow.sh --enable-motion
-# 实验结束按 Ctrl+C，等待从臂六轴返回保存姿态并退出
+# 实验结束按 Ctrl+C，等待从臂六轴返回启动前记录的姿态并退出
 ```
 
 远端地址或账户变化时，在同一终端设置

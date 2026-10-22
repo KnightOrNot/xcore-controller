@@ -17,11 +17,21 @@ controller 默认配置位于 [config/default.toml](../../config/default.toml)�
 ip = "192.168.2.160"
 follow_max_speed_deg = 75
 prepare_speed = 4000
+return_mode = "start"
 ```
 
 - `ip`：CR7 控制器地址，不是 Linux 服务机。
 - `follow_max_speed_deg`：六轴实时跟随软件限速，必须 `0 < v <= 75`。
 - `prepare_speed`：启动对齐的 SDK 速度参数（mm/s），与轴速度不是同一量纲。
+- `return_mode`：退出返回目标，取值为：
+  - `start`（默认）：每次启动跟随／记录前记录当前从臂实际姿态，退出时返回该姿态；
+  - `saved`：返回 `xcore-sdk-python/config/exit_pose.json` 的固定姿态；
+  - `zero`：返回六轴 0°；
+  - `none`：不自动返回，等价于 `--no-return`。
+
+  命令行 `--return-mode` 优先，也可用 `XCORE_RETURN_MODE` 覆盖。`start` 模式的
+  启动姿态写入本次会话的 `logs/follow-*/exit_pose.json`，不覆盖现场
+  `config/exit_pose.json`；采集失败会在任何运动前中止。
 
 ## gello
 
