@@ -2,7 +2,7 @@
 
 本文用于让后续 AI 接手工程。先阅读本文、`README.md` 和将要修改的子项目文档；
 以代码、现场配置和实际测试结果为准，不能将历史日志或计划当作已验收功能。
-最后更新：2026-10-21。默认参数已统一到各项目的 `config/default.toml`，文档结构对齐
+最后更新：2026-10-22。默认参数已统一到各项目的 `config/default.toml`，文档结构对齐
 agilex；双相机第一版已部署并通过硬件采集测试，验收边界与本次交接见文末。
 
 ## 用户目标和工程边界
@@ -19,7 +19,8 @@ agilex；双相机第一版已部署并通过硬件采集测试，验收边界�
 - **后续目标架构已确认：本地仅提供 GELLO 数据源与操作客户端；远端负责 CR7 SDK
   实时控制、夹爪、双 RGBD／力数据采集、LeRobot 转换及 LeLab 管理。**
   同一 `xcore-controller` 仓库提供本地／远端两种角色，不复制两个控制工程。
-  该迁移尚未实现；当前已有 SDK 跟随仍在本地，不能将目标架构当作已部署状态。
+  双角色基础和远端 SDK 只读数据桥已实现；当前真实 SDK 跟随仍在本地，
+  新架构远端运动、连续真机采集尚未实现，不能将完整目标当作已部署状态。见文末新检查点。
 - **当前任务不要移动机械臂，不要启动跟随或执行退出返回。** 相机开发与真机控制解耦。
 
 ## 仓库布局与 Git 规则
@@ -36,11 +37,21 @@ xcore/
 │   ├── xcore-gello-software/      # GELLO 只读采集和标定支持；独立 Git 子模块
 │   ├── xcore-gripper-2F85/        # 夹爪驱动、协议、服务源码；独立 Git 子模块
 │   ├── lerobot-converter/         # 独立转换环境；独立 Git 子模块
-│   └── camera-realsense-d435i/    # 独立相机仓库的 submodule
+│   ├── camera-realsense-d435i/    # 独立相机仓库的 submodule
+│   ├── xcore-adapters/           # 新增数据／协议适配 submodule
+│   └── xcore-dataset/            # 新增远端数据工具 submodule
 └── camera-realsense-d435i/        # 独立相机开发 checkout
 ```
 
-五个 submodule 都遵循同一结构：`config/default.toml`、`docs/`、
+2026-10-22 已新增同级独立 Git 项目 `xcore-adapters/`、`xcore-dataset/`，
+绑定用户创建的 GitHub 仓库并注册为 controller 的同名 submodule，现共七个子模块。
+controller 根 uv 源和测试路径指向仓库内 `xcore-adapters`，数据拉取工具使用仓库内
+`xcore-dataset/.venv`；同级独立 checkout 是另一份工作副本，不会自动同步。
+新仓库 SSH 为 `git@github.com:KnightOrNot/xcore-adapters.git` 和
+`git@github.com:KnightOrNot/xcore-dataset.git`。不要把子项目源码直接合并进父仓库，
+也不为生成的 xcore-runtime 创建业务仓库。
+
+原有五个 submodule 都遵循同一结构：`config/default.toml`、`docs/`、
 `docs/reference/{cli,config,errors}.md`、`CONTRIBUTING.md`、`CHANGELOG.md`。
 源码包的 `default.toml` 是指向仓库配置的符号链接。
 
@@ -94,6 +105,9 @@ xcore/
 （`/dev/serial/by-id/` 不存在，`lsusb` 无 FTDI 设备），
 `xcore-gripper-follow.service` 曾因串口缺失处于 `auto-restart`。硬件恢复前应保持该
 unit 停止，不要通过反复重启或改用其他串口“修复”，也不要为相机开发顺带处理夹爪。
+2026-10-22 复检已恢复：实际 RS485 为 DABGMMQO，已修正 unit 并替换旧手动服务，
+反馈与连续跟随协议正常、unit disabled；本次启动带 `--no-activate`，没有执行开合。
+以文末本日检查点为最新现场状态，不再套用上一日“适配器缺失”的处置。
 
 ## 已有跟随与夹爪功能
 
@@ -404,7 +418,7 @@ RT 插值输出，训练特征明确选择哪一种；未来实际状态如需�
 本地需要时再经网线传回数据**。随后进一步确认：**将 SDK 控制也迁移到远端，
 本地只保留 GELLO 服务与操作客户端**。后续实现以此为目标，取代之前
 “本地 SDK 控制并上传记录副本”的中间方案，不再以本地控制为新链路主架构。
-**当前实现仍是本地 GELLO＋本地 SDK 跟随，SDK 远端迁移尚未实施或验收。**
+**当前真实跟随仍是本地 GELLO＋本地 SDK；远端已部署只读 SDK worker，真实跟随迁移尚未完成或验收。**
 既有流程保留兼容，但不得与新远端流程同时控制同一机械臂。
 
 已只读参考 `../agilex/agilex-controller/` 的这些实现（相对 `xcore/` 根目录）：
@@ -433,12 +447,13 @@ CAN 初始化、回零逻辑或同机时钟假设。
 | xcore-sdk-python | 迁移后由远端唯一 SDK worker 拥有 CR7 会话、实际反馈、限速／插值及实时下发；现有本地 SDK 链仅作兼容入口 |
 | xcore-gripper-2F85／远端夹爪服务 | 远端夹爪唯一串口 owner；由远端会话使用同一次 GELLO 采样驱动目标并记录实际反馈 |
 | camera-realsense-d435i | 远端两台相机的唯一 pipeline owner；增加 RGBD 原始帧记录分支，与预览共享采集 |
-| xcore-adapters（拟新增） | 独立适配包：CR7／GELLO LeRobot 协议、采样数据契约、FK／EE10、特征和深度／力字段映射；不直接另开 SDK／串口 |
-| xcore-dataset（拟新增） | 远端记录会话、raw 写入与封存、时间对齐、LeRobot 转换任务、质量报告及 LeLab 集成；依赖 xcore-adapters，与 controller 通过明确接口协作 |
+| xcore-adapters（独立子模块） | 独立适配包：CR7／GELLO LeRobot 协议、采样数据契约、FK／EE10、特征和深度／力字段映射；不直接另开 SDK／串口 |
+| xcore-dataset（独立子模块） | 远端记录会话、raw 写入与封存、时间对齐、LeRobot 转换任务、质量报告及 LeLab 集成；依赖 xcore-adapters，与 controller 通过明确接口协作 |
 | LeRobot／LeLab | 远端独立数据环境中的锁定依赖；数据处理应用调用其 API，不改上游代码 |
 
-拟新增项目源码在本地 `xcore/xcore-adapters/`、`xcore/xcore-dataset/` 独立维护，
-controller 仅通过 submodule 引用并集成入口；仓库尚未创建，不得写成已存在或已部署。
+新增项目源码在本地 `xcore/xcore-adapters/`、`xcore/xcore-dataset/` 独立维护，
+controller 已通过同名 submodule 引用两个 GitHub 仓库并集成有限入口。
+远端仍是本轮部署的开发快照，不能把 GitHub 发布等同于完整功能或部署自动化已验收。
 远端部署在 `~/project/xcore-adapters/`、`~/project/xcore-dataset/`，
 业务数据统一放 `~/project/xcore-data/`，与代码／虚拟环境分开并排除 Git。
 远端还需部署同一仓库的 `~/project/xcore-controller/` 及所需 SDK 子模块，
@@ -460,6 +475,9 @@ LeRobot／LeLab／adapter 采用独立 Python 3.12 环境作为参考起点，�
 Torch／FFmpeg／视频后端以远端兼容性测试及 `uv.lock` 固定，不盲目追最新版。
 SDK worker 保持 CPython 3.11／Linux x86_64 ABI，迁移前在远端独立验证；
 远端现有相机环境保持独立，不为数据工具改其 Python ABI。
+`~/project/xcore-runtime/` 是生成的运行环境目录，存放 Python、vendor／venv 和视频库，
+不承担设备控制、数据适配或采集业务，不应变成第四个业务源码项目。
+其可复现安装脚本／依赖清单由 controller 的 deploy 或对应独立项目维护，环境本身不进 Git。
 参考工程当前锁定 LeRobot 0.6.0 和 LeLab 提交
 `9b5afaee33baa1d773e499937564f3831d25de22`，仅作为已检查的参考组合，
 部署前需在远端验证双 RGBD、12 维力、有效掩码和字符串的真实写入／读回。
@@ -576,7 +594,8 @@ Robot／Teleoperator adapter 只附着已有 worker，断开只释放客户端�
 
 ### 本地拟定脚本与验收顺序
 
-以下均为**待实现的入口设计，当前不能作为可用命令运行**；实际实现时同步 CLI、
+以下是完整目标的入口设计；2026-10-22 已实现的有限入口见文末检查点，其余仍待实现。
+不能把只读 SDK 数据桥当作可启用运动的跟随入口。实际实现时同步 CLI、
 `config/default.toml`、README 和测试，不在 shell 里复制默认参数：
 
 | 拟定入口 | 用途 |
@@ -609,6 +628,50 @@ Robot／Teleoperator adapter 只附着已有 worker，断开只释放客户端�
    再做持续吞吐与同步误差测试；离线测试不能替代运动与停止行为验收。
    新采集所需的运动测试必须由现场人员确认并启动，不因数据部署自动运行跟随或退出返回。
 
-**当前状态**：仅完成参考代码阅读和架构文档。已有 SDK 跟随仍在本地，远端 SDK worker、
-controller 双角色及 GELLO 跨机服务均未实现／部署。未新增上述项目／脚本，未安装远端
-LeRobot／LeLab 数据环境，未部署数据服务、执行数据传输或操作任何硬件。
+### 2026-10-22 实施检查点（最新状态，未完成完整目标）
+
+本次用户授权检查已连接硬件并开始实现待办；已进行只读硬件测试和首阶段开发／部署。
+详见 [阶段说明](docs/REMOTE_DATA_MILESTONE.md)，后续 AI 接续实现时先读该文件。
+
+| 范围 | 已实现／实测 |
+| --- | --- |
+| 硬件 | GELLO ID1～7 只读在线；CR7 本地及远端 SDK 0.7.1 连接正常，manual/off/idle；夹爪实际反馈正常 |
+| 双 D435i | 两台 640×480 RGB＋Z16 同时 10 秒各推进 150 帧，约 15 FPS，USB 2.1；测试后停止采集 |
+| 夹爪修复 | 从旧手动服务切到已有独立连续服务；RS485 unit 路径改为 DABGMMQO，--no-activate，未运动；原 unit 已备份 |
+| controller | 新增轻量根 uv 环境和 `src/xcore_controller/`，本地 GELLO 只读服务／远端只读 SDK worker／JSON HTTP 数据桥 |
+| 接收状态机 | 拒绝重复／乱序和旧实例；断流锁定、重连不自动 arm；硬件 arm 明确拒绝；没有实现或测试真实停止／运动 |
+| 独立项目 | xcore-adapters 和 xcore-dataset 已绑定 GitHub 并注册 controller submodule；数据语义校验、原始封存、时间匹配、LeRobot 转换及清单发布已实现 |
+| 数据格式验证 | 真实 writer／loader 回读 EE10 state/action、两路 RGB 视频＋两路米制无损深度、12 维力／掩码、中文 task |
+| 远端闭环 | 12 帧明确标记 synthetic 的 raw 在远端转换发布，LeLab 列出／读取 episode，本地 rsync 拉取、SHA-256 校验和 loader 回读通过 |
+| 数据浏览 | LeLab 仅浏览；应用补充状态／力／深度统计和灰度深度预览，真实深度字段不改；没有开放合并、上传、删除或运动接口 |
+| 新入口 | start_gello_service、start_remote_controller、stop_remote_controller、start_dataset、stop_dataset、pull_dataset，均位于 scripts/ |
+| 部署 | 远端 SDK 3.11.16、数据 3.12.14 独立运行环境；只读／模拟 controller 和数据 unit 均按需启动、disabled；现有相机环境不变 |
+
+当前 controller 55 项测试通过，adapter／dataset 合计 7 项离线回归通过；新代码 Ruff、
+脚本语法及真实跨机只读数据桥测试通过。共享 converter 及五个既有 submodule 未修改。
+本次未上电、未切换机械臂模式、未下发运动、未重新激活／开合夹爪，未自动执行退出返回。
+现场测试数据、虚拟环境、SSH 和运行配置不进入 Git。
+首阶段检查结束后已停止本地 GELLO／桥和测试隧道，远端只读／模拟 controller、数据浏览、
+双相机 unit 均已停止且 disabled；夹爪保持修复后的服务运行、disabled、未运动。
+两个新增独立包的 wheel 构建通过，dataset wheel 内默认 TOML 已核实包含。
+
+**仍待完成，不能误报为可用**：
+
+1. 真正的远端 RT 运动迁移、校准映射／分支、限位／对齐／退出策略与真机断流停止验收。
+   当前 hardware-read-only 的 motion_capable=false；旧真实跟随仍在本地。
+2. 实际机型 FK 与夹爪 TCP 验证。仅确认 vendor 六轴模型 API 可读，未验收工具标定，
+   不能用模型输出或法兰坐标静默冒充经过验证的夹爪 TCP。
+3. 相机单 pipeline 的无损 RGB／Z16 连续记录分支，以及真实 SDK 反馈／目标和两路力接入。
+   当前相机 snapshot 彩色为 JPEG；新转换器只验证已封存的合成 raw，不会补出缺失图像。
+4. 跨机源时钟映射／不确定度估计、真实多流协调、session 多 episode／转换任务队列和崩溃恢复。
+   当前 LeaderInbox 只验证序号、源时间单调及接收超时，不等同于源帧龄或曝光同步验收。
+5. LeRobot Robot／Teleoperator 控制协议适配、完整可复现部署包、
+   数据吞吐与长时间测试。当前新工具按 checkout 运行，不能宣称单 wheel 可独立部署。
+
+后续按照上方目标架构推进，保留原七维链和共享 converter。实际运动验收仍需现场人员
+明确确认后执行；已连接硬件／只读测试通过不能替代该验收。
+
+用户随后要求停止功能开发：仅完成 GitHub 绑定、submodule 引入、进度记录和 commit／push
+后停止。本次交接不继续推进以上待办。先推送两子仓库，再推送父仓库 gitlink；
+运行环境、现场数据及既有五个 submodule 不纳入本轮代码改动。
+本轮新增子模块基线：xcore-adapters `779b25b`、xcore-dataset `369ca4c`。

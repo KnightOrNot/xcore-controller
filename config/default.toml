@@ -46,3 +46,16 @@ camera_project = "camera-realsense-d435i"
 # SSH 连接与远端服务操作的超时，秒。
 ssh_connect_s = 5
 gripper_ready_s = 15
+
+[roles]
+bind_host = "127.0.0.1"
+gello_port = 9011
+controller_port = 9012
+leader_poll_hz = 25
+leader_timeout_s = 0.5
+remote_local_ip = "192.168.2.225"
+remote_project = "project/xcore-controller"
+remote_python = "project/xcore-runtime/cpython-3.11.16-linux-x86_64-gnu/bin/python3.11"
+remote_dataset_python = "project/xcore-runtime/dataset-venv/bin/python"
+remote_data_root = "project/xcore-data"
+dataset_port = 8090

@@ -13,3 +13,9 @@
 [submodule "camera-realsense-d435i"]
 	path = camera-realsense-d435i
 	url = git@github.com:KnightOrNot/camera-realsense-d435i.git
+[submodule "xcore-adapters"]
+	path = xcore-adapters
+	url = git@github.com:KnightOrNot/xcore-adapters.git
+[submodule "xcore-dataset"]
+	path = xcore-dataset
+	url = git@github.com:KnightOrNot/xcore-dataset.git

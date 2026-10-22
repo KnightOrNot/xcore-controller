@@ -62,6 +62,19 @@ SECTIONS = {
         "ssh_connect_s": "XCORE_SSH_CONNECT_TIMEOUT",
         "gripper_ready_s": "XCORE_GRIPPER_READY_TIMEOUT",
     },
+    "roles": {
+        "bind_host": "XCORE_ROLE_BIND_HOST",
+        "gello_port": "XCORE_GELLO_SERVICE_PORT",
+        "controller_port": "XCORE_CONTROLLER_SERVICE_PORT",
+        "leader_poll_hz": "XCORE_LEADER_POLL_HZ",
+        "leader_timeout_s": "XCORE_LEADER_TIMEOUT_S",
+        "remote_local_ip": "XCORE_REMOTE_LOCAL_IP",
+        "remote_project": "XCORE_REMOTE_PROJECT",
+        "remote_python": "XCORE_REMOTE_PYTHON",
+        "remote_dataset_python": "XCORE_REMOTE_DATASET_PYTHON",
+        "remote_data_root": "XCORE_REMOTE_DATA_ROOT",
+        "dataset_port": "XCORE_DATASET_SERVICE_PORT",
+    },
 }
 
 
@@ -78,7 +91,7 @@ class Values:
             raise KeyError(f"unknown configuration key: {dotted}")
         return self.data[section][key]
 
-    def shell(self) -> str:
+    def with_environment(self) -> Values:
         effective = {name: dict(values) for name, values in self.data.items()}
         for section, keys in SECTIONS.items():
             for key, variable in keys.items():
@@ -97,10 +110,17 @@ class Values:
                         or (section, key) == ("timeouts", "gripper_ready_s")
                         else int(value)
                     )
+                elif kind is float:
+                    parsed = float(value)
                 else:
                     parsed = value
                 effective[section][key] = parsed
-        validate(Values(effective, self.path))
+        result = Values(effective, self.path)
+        validate(result)
+        return result
+
+    def shell(self) -> str:
+        self.with_environment()
         lines = []
         for section, keys in SECTIONS.items():
             for key, variable in keys.items():
@@ -158,6 +178,23 @@ def _builtin(section: str, key: str) -> Any:
         ("paths", "camera_project"): "camera-realsense-d435i",
         ("timeouts", "ssh_connect_s"): 5,
         ("timeouts", "gripper_ready_s"): 15,
+        ("roles", "bind_host"): "127.0.0.1",
+        ("roles", "gello_port"): 9011,
+        ("roles", "controller_port"): 9012,
+        ("roles", "leader_poll_hz"): 25,
+        ("roles", "leader_timeout_s"): 0.5,
+        ("roles", "remote_local_ip"): "192.168.2.225",
+        ("roles", "remote_project"): "project/xcore-controller",
+        (
+            "roles",
+            "remote_python",
+        ): "project/xcore-runtime/cpython-3.11.16-linux-x86_64-gnu/bin/python3.11",
+        (
+            "roles",
+            "remote_dataset_python",
+        ): "project/xcore-runtime/dataset-venv/bin/python",
+        ("roles", "remote_data_root"): "project/xcore-data",
+        ("roles", "dataset_port"): 8090,
     }
     return builtin[(section, key)]
 
@@ -167,6 +204,7 @@ def validate(values: Values) -> None:
         ("robot", "follow_max_speed_deg"),
         ("robot", "prepare_speed"),
         ("timeouts", "gripper_ready_s"),
+        ("roles", "leader_timeout_s"),
     }
     for section, keys in SECTIONS.items():
         for key in keys:
@@ -200,6 +238,13 @@ def validate(values: Values) -> None:
         raise ValueError("remote.gripper_port must be in 1..65535")
     if values.get("timeouts.ssh_connect_s") <= 0:
         raise ValueError("timeouts.ssh_connect_s must be a positive integer")
+    if values.get("roles.bind_host") not in ("127.0.0.1", "::1"):
+        raise ValueError("role services must bind loopback; use SSH forwarding")
+    for key in ("gello_port", "controller_port", "dataset_port"):
+        if not 1 <= values.get("roles." + key) <= 65535:
+            raise ValueError("invalid role service port")
+    if not 1 <= values.get("roles.leader_poll_hz") <= 100:
+        raise ValueError("leader_poll_hz must be in 1..100")
     fps = values.get("recording.dataset_fps")
     if not isinstance(fps, int) or fps <= 0:
         raise ValueError("recording.dataset_fps must be a positive integer")
