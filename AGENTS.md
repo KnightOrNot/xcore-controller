@@ -848,3 +848,17 @@ Robot／Teleoperator adapter 只附着已有 worker，断开只释放客户端�
 - 离线测试：新增“RT 收尾非 idle 时等待后再返回”用例，controller 73 项通过。
   远端 unit 已重启；退出返回仍需现场确认后重试（zero 模式会让 J1 从约 175° 转回 0°，
   执行前必须确认该路径安全）。
+
+### 未解决：退出返回因控制器掉电失败（2026-10-22 实机，暂不处理）
+
+- 用户按 `exit --return-mode zero`，客户端已能显示完整错误体：
+  `HTTP 409: {"error": "XCoreError: Motion stopped by controller: power state off;
+  read controller-logs for the fault code"}`。
+- 解释：返回流程已通过 idle 等待和参数检查，但在 `movej` 执行期间控制器报告
+  `power state off`，`RobotDriver.movej` 按设计中止并抛出。说明 CR7 当前处于
+  下电／掉电（可能是示教器下电、急停或控制器保护），不是本次 409 的 idle 时序问题。
+- 当前状态：机械臂未完成返回，停在约 `[175.8, 2.7, 4.8, 3.2, -1.5, 3.2]°`；
+  **尚未确认上电与急停状态，也未读取 controller logs**。经用户要求，本轮不继续修复。
+- 下次处理顺序：先在示教器/HMI 确认无急停并上电 → 读取 `xcore controller-logs`
+  → 确认 `operationState=idle`、`powerState=on` → 再重试返回。不得用反复 arm／movej
+  掩盖掉电或保护状态，也不要在未确认安全路径时执行 zero 返回。
