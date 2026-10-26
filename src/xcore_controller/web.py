@@ -583,7 +583,7 @@ header a.hbtn:hover{border-color:#8b949e;background:#30363d}
   </section>
 </aside>
 <section class="previews">
-  <div class="bar"><h3>实时预览</h3><span class="spacer"></span><span class="muted" style="font-size:11px;color:var(--muted)">两台相机各自 RGB／深度；点击画面右上角可单画面全屏</span></div>
+  <div class="bar"><h3>实时预览</h3><span class="spacer"></span><span class="muted" style="font-size:11px;color:var(--muted)">两台相机各自 RGB／深度；深度预览已对齐到 RGB 视域（录制仍为原生深度）；点击画面右上角可单画面全屏</span></div>
   <div class="grid">
     <div class="tile" id="t-c1r"><span class="label">cam1 RGB</span><button class="fs" type="button">全屏</button><img id="c1r" alt="cam1 RGB"></div>
     <div class="tile" id="t-c1d"><span class="label">cam1 深度</span><button class="fs" type="button">全屏</button><img id="c1d" alt="cam1 depth"></div>
