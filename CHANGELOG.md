@@ -55,6 +55,9 @@
   发布 `representation.json`；`pull_dataset.sh --pose|--joints|--list` 校验表示后拉取。
 - 重做网页面板布局：全高自适应、2×2 预览、单画面/整页全屏、预览最大化、
   状态指标卡、MJPEG 只在 URL 变化时重连并在断流后重试。
+- 修复真实会话转换：同一相机帧被多个样本引用时不再误报元数据冲突；记录时帧龄
+  与时钟误差分离并写入质量报告；转换容差默认 100ms。刚保存的 real session
+  已重新转换并在 LeLab 可见。
 - 相机子模块升级到 `76d33ac`：同一采集 pipeline 新增无损 RGB／Z16 连续记录，
   有界队列／写盘线程／`COMPLETE.json` 提交标记；真实双机 10 秒各 150 帧零丢帧。
 - 新增 `[robot].return_mode`（`start`/`zero`/`none`），默认 `zero`：

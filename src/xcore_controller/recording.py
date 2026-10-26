@@ -448,7 +448,9 @@ class SessionRecorder:
                     "path": f"{name}/{frame[key]}",
                     "timestamp_ns": frame["received_monotonic_ns"],
                     "clock_domain": "remote_monotonic",
-                    "uncertainty_ns": int(max(0, uncertainty)),
+                    "clock_uncertainty_ns": 0,
+                    "uncertainty_ns": 0,
+                    "age_ns": int(max(0, uncertainty)),
                     "frame_number": frame[number],
                 }
         return {

@@ -145,6 +145,10 @@ def test_episode_commits_with_two_lossless_cameras(tmp_path):
     ]
     assert len(rows) == result["rows"]
     for row in rows:
+        for frame in row["images"].values():
+            assert frame["uncertainty_ns"] == 0
+            assert frame["clock_uncertainty_ns"] == 0
+            assert frame["age_ns"] >= 0
         assert set(row["images"]) == {
             "cam1_rgb",
             "cam1_depth",

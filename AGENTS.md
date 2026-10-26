@@ -1158,3 +1158,26 @@ dataset `943119e`。父仓库已更新两个 submodule 指针；其余子模块�
 - 页面按钮状态、后端检查、确认令牌和断电保护逻辑未改变。控制台已用无头 Firefox
   尝试截图但环境未产出文件（MJPEG 持续加载可能阻塞截图），页面 HTML/JS 语法
   `node --check` 通过；**实际排版与全屏按钮仍需用户在浏览器验收**。
+
+### 修复：真实会话未出现在 LeLab（2026-10-26）
+
+- 用户看到 LeLab 只有三个合成版本，怀疑读的是本地数据。核实：面板链接到
+  `127.0.0.1:8090` SSH 隧道，远端 dataset unit 的 `--root` 为
+  `/home/rokae/project/xcore-data/lerobot`；LeLab `/datasets` 与远端目录一致，
+  **确实是远端数据**。缺少的是刚保存的 session，因为转换 job 失败。
+- 两个转换缺陷：
+  1. 多个机器人样本引用同一相机帧时，`uncertainty_ns`（记录时帧龄）随样本不同；
+     旧代码把整个 image dict 当身份比较，误报 `conflicting image metadata at same
+     timestamp`。现在只比较 path／帧号／时间等身份字段，帧龄取保守最大值。
+  2. 转换把记录时帧龄当作时钟误差加到匹配误差里，导致 50ms 容差拒绝了实际最近帧
+     仅 33–68ms 的真实片段。现在只用 `abs(frame_time-target)+clock_uncertainty_ns`；
+     帧龄写入 `quality_report.max_recorded_frame_age_ms`。新录制行写
+     `clock_uncertainty_ns=0`、`uncertainty_ns=0`、`age_ns=<采样帧龄>`。
+- dataset `max_skew_ms` 默认从 50 改为 **100ms**：15fps 双相机偶发丢帧时最近帧
+  可达约 68ms；质量报告仍记录逐流真实误差，不能把 100ms 当作硬同步。
+- 重跑三个失败 job（旧 job 的 50ms 容差同步更新为 100）：
+  `session_20261026_123845`（117 帧、1 episode，用户刚保存的数据）、
+  `session_20261026_111111`（280 帧）、`session_20261026_112434`（414 帧、2 episodes）
+  全部 READY；远端 LeLab `/datasets` 已列出，`/api/sample` 可读回真实 pose10、
+  task 和 640×480 深度。未改动机器人、相机或夹爪状态。
+- 验证：dataset 10 项、controller recording 6 项通过；无新增运动。
