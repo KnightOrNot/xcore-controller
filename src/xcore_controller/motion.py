@@ -42,6 +42,7 @@ class MotionSettings:
     return_tolerance_deg: float = 0.2
     return_timeout_s: float = 600.0
     return_mode: str = "none"
+    arm_timeout_s: float = 20.0
 
     def validate(self) -> None:
         for name in (
@@ -50,6 +51,7 @@ class MotionSettings:
             "control_hz",
             "stale_timeout_s",
             "gate_deg",
+            "arm_timeout_s",
             "prepare_speed",
             "prepare_interval_s",
             "prepare_max_step_deg",
@@ -70,6 +72,8 @@ class MotionSettings:
                 raise ValueError(f"{name} must be positive and finite")
         if self.max_speed_deg > 75:
             raise ValueError("max_speed_deg is limited to 75 deg/s")
+        if not 1 <= self.arm_timeout_s <= 30:
+            raise ValueError("arm_timeout_s must be in 1..30 seconds")
         if not 5 <= self.prepare_speed <= 4000:
             raise ValueError("prepare_speed must be in 5..4000 mm/s")
         if not 5 <= self.return_speed <= 4000:
@@ -92,9 +96,10 @@ def _default_driver(settings: MotionSettings):
 
 def _default_bot(driver: Any, settings: MotionSettings, verbose: bool):
     from xcore_sdk_python.gello_follower import GelloCr7Robot
+    from xcore_sdk_python.gello_server import CheckedRobot
 
     return GelloCr7Robot(
-        driver.robot,
+        CheckedRobot(driver.robot),
         driver.sdk,
         enable_motion=True,
         control_hz=settings.control_hz,
@@ -126,6 +131,7 @@ class MotionWorker:
         *,
         driver_factory: Callable[[], Any] | None = None,
         bot_factory: Callable[[Any, MotionSettings, bool], Any] | None = None,
+        gripper_factory: Callable[[], Any] | None = None,
         verbose: bool = True,
     ) -> None:
         settings.validate()
@@ -134,8 +140,12 @@ class MotionWorker:
         self.verbose = verbose
         self._driver_factory = driver_factory or (lambda: _default_driver(settings))
         self._bot_factory = bot_factory or _default_bot
+        self._gripper_factory = gripper_factory
+        self._gripper: Any = None
+        self._gripper_feedback: dict[str, Any] | None = None
         self._commands: queue.Queue[_Command] = queue.Queue()
         self._stop = threading.Event()
+        self._cancel_arm = threading.Event()
         self._lock = threading.RLock()
         self._driver: Any = None
         self._bot: Any = None
@@ -143,6 +153,7 @@ class MotionWorker:
         self._state = "starting"
         self._error: str | None = None
         self._abort: str | None = None
+        self._cleanup_fault: str | None = None
         self._armed = False
         self._start_pose: list[float] | None = None
         self._last_feedback: list[float] | None = None
@@ -228,9 +239,11 @@ class MotionWorker:
         return command.result
 
     def arm(self) -> dict[str, Any]:
-        return self._call("arm", timeout=30)
+        self._cancel_arm.clear()
+        return self._call("arm", timeout=self.settings.arm_timeout_s + 15)
 
     def disarm(self) -> dict[str, Any]:
+        self._cancel_arm.set()
         return self._call("disarm", timeout=30)
 
     def prepare(self) -> dict[str, Any]:
@@ -272,6 +285,9 @@ class MotionWorker:
                 "kinematics": getattr(self._kinematics, "name", None),
                 "fk_error": self._fk_error,
                 "start_pose_rad": self._start_pose,
+                "gripper_enabled": self._gripper_factory is not None,
+                "gripper": self._gripper_feedback,
+                "cleanup_fault": self._cleanup_fault,
             }
 
     def _execute(self, command: _Command) -> None:
@@ -288,9 +304,11 @@ class MotionWorker:
         with self._lock:
             if self._armed:
                 return self.status()
-            if self._state != "idle" or self._driver is None:
+            if self._state not in ("idle", "stopped") or self._driver is None:
                 raise RuntimeError(f"cannot arm while motion is {self._state}")
             driver = self._driver
+            if self._cleanup_fault:
+                raise RuntimeError(self._cleanup_fault)
         with self._inbox_lock:
             packet = self.inbox.check()
         feedback = np.asarray(driver.joints()["rad"], dtype=float)
@@ -310,15 +328,54 @@ class MotionWorker:
         )
         with self._lock:
             self._soft_lo, self._soft_hi = soft_lo, soft_hi
-        with self._inbox_lock:
-            # Only an explicit, gate-checked arm unlatches the latest-value inbox.
-            self.inbox.arm()
         if self.settings.return_mode == "start":
             self._start_pose = feedback.tolist()
         self._init_kinematics(driver)
-        bot = self._bot_factory(driver, self.settings, self.verbose)
+        gripper = None
+        try:
+            if self._gripper_factory is not None:
+                gripper = self._gripper_factory()
+                gripper.start()  # Read-only capability/activation preflight.
+            with self._inbox_lock:
+                self.inbox.check()  # Slow preflight must not arm stale input.
+            bot = self._bot_factory(driver, self.settings, self.verbose)
+            with self._lock:
+                self._bot = bot
+                self._gripper = gripper
+                self._state = "arming"
+                self._last_sample = None
+                self._error = self._abort = None
+                self._forwarded = 0
+            self._wait_arm_ready(bot, gripper, feedback)
+            with self._inbox_lock:
+                packet = self.inbox.check()
+                target = self._mapper.feed_ticks(packet["ticks"])
+                actual = np.asarray(bot.get_joint_state(), dtype=float)
+                if np.max(np.abs(target - actual)) > math.radians(
+                    self.settings.gate_deg
+                ):
+                    raise RuntimeError(
+                        "GELLO moved outside the alignment gate during arm"
+                    )
+                self.inbox.arm()
+        except BaseException as exc:
+            # The HTTP caller must see startup failures, rather than a false
+            # armed=true followed by a silent asynchronous stop.
+            attached = gripper is not None and self._gripper is gripper
+            self._close_bot()
+            with self._inbox_lock:
+                self.inbox.latched = True
+            with self._lock:
+                self._armed = False
+                self._state = "error" if self._cleanup_fault else "stopped"
+                self._abort = f"arm failed: {type(exc).__name__}: {exc}"
+            if gripper is not None and not attached:
+                try:
+                    gripper.close()
+                except Exception as cleanup_exc:
+                    self._cleanup_fault = f"gripper cleanup failed: {cleanup_exc}"
+            raise
         with self._lock:
-            self._bot = bot
             self._armed = True
             self._error = None
             self._abort = None
@@ -331,6 +388,38 @@ class MotionWorker:
             )
         return self.status()
 
+    def _wait_arm_ready(self, bot: Any, gripper: Any, feedback: Any) -> None:
+        from .gripper import GripperFeedbackPending
+
+        deadline = time.monotonic() + self.settings.arm_timeout_s
+        while True:
+            if self._stop.is_set() or self._cancel_arm.is_set():
+                raise RuntimeError("arm cancelled")
+            with self._inbox_lock:
+                self.inbox.check()
+            reason = bot.abort_reason()
+            if reason:
+                raise RuntimeError(reason)
+            # Hold at measured startup pose while RT starts. Do not dispatch
+            # leader/gripper targets until both independent components are ready.
+            bot.command_joint_state(feedback)
+            rt_ready = bot.motion_active() and bot.stats()["cb_calls"] >= 3
+            grip_ready = gripper is None
+            if gripper is not None:
+                try:
+                    self._gripper_feedback = gripper.feedback()
+                    grip_ready = True
+                except GripperFeedbackPending:
+                    pass  # Bounded warmup only; normal follow still rejects stale.
+            if rt_ready and grip_ready:
+                return
+            if time.monotonic() >= deadline:
+                raise TimeoutError(
+                    f"arm startup timed out: rt_ready={rt_ready}, "
+                    f"gripper_ready={grip_ready}"
+                )
+            time.sleep(min(0.04, 1 / self.settings.control_hz))
+
     def _do_disarm(self, payload: dict[str, Any]) -> dict[str, Any]:
         self._close_bot()
         with self._inbox_lock:
@@ -339,6 +428,7 @@ class MotionWorker:
             self._armed = False
             if self._state == "following":
                 self._state = "idle"
+        self._require_clean_shutdown()
         return self.status()
 
     def _do_capture_start(self, payload: dict[str, Any]) -> dict[str, Any]:
@@ -380,6 +470,7 @@ class MotionWorker:
         return result
 
     def _do_prepare(self, payload: dict[str, Any]) -> dict[str, Any]:
+        self._require_clean_shutdown()
         driver = self._require_driver()
         with self._lock:
             if self._armed:
@@ -404,6 +495,9 @@ class MotionWorker:
             ):
                 return {"reached": True, "skipped": True, "target_rad": target.tolist()}
             attempted = True
+            driver.call(
+                "setMotionControlMode", driver.sdk.MotionControlMode.NrtCommandMode
+            )
             driver.mode("automatic")
             driver.power(True)
             result = driver.movej(
@@ -412,6 +506,7 @@ class MotionWorker:
                 max_step_deg=self.settings.prepare_max_step_deg,
                 tolerance_deg=self.settings.prepare_tolerance_deg,
                 motion_timeout=self.settings.prepare_timeout_s,
+                motion_mode_prepared=True,
             )
             return dict(
                 result,
@@ -424,7 +519,7 @@ class MotionWorker:
         finally:
             if attempted:
                 try:
-                    _restore(driver, power, mode)
+                    _restore(driver, power, mode, allow_power_on=failure is None)
                 except Exception:
                     if failure is None:
                         raise
@@ -434,6 +529,7 @@ class MotionWorker:
         if mode not in ("start", "zero", "none"):
             raise ValueError("return mode must be start, zero or none")
         self._close_bot()
+        self._require_clean_shutdown()
         with self._lock:
             self._armed = False
             self._state = "idle" if self._driver is not None else self._state
@@ -460,6 +556,9 @@ class MotionWorker:
             ):
                 return {"returned": True, "skipped": True, "target_rad": target}
             attempted = True
+            driver.call(
+                "setMotionControlMode", driver.sdk.MotionControlMode.NrtCommandMode
+            )
             driver.mode("automatic")
             driver.power(True)
             result = driver.movej(
@@ -468,6 +567,7 @@ class MotionWorker:
                 max_step_deg=self.settings.return_max_step_deg,
                 tolerance_deg=self.settings.return_tolerance_deg,
                 motion_timeout=self.settings.return_timeout_s,
+                motion_mode_prepared=True,
             )
             return dict(result, returned=True, mode=mode, target_rad=target)
         except BaseException as exc:
@@ -476,7 +576,7 @@ class MotionWorker:
         finally:
             if attempted:
                 try:
-                    _restore(driver, power, prior_mode)
+                    _restore(driver, power, prior_mode, allow_power_on=failure is None)
                 except Exception:
                     if failure is None:
                         raise
@@ -512,6 +612,14 @@ class MotionWorker:
             if self._driver is None:
                 raise RuntimeError(self._error or "SDK is not connected")
             return self._driver
+
+    def _require_clean_shutdown(self) -> None:
+        if self._cleanup_fault:
+            raise RuntimeError(
+                f"RT/gripper cleanup incomplete: {self._cleanup_fault}; "
+                "restart the controller service after checking the robot; "
+                "no new motion was dispatched"
+            )
 
     def _sample_ticks(self) -> list[list[int]]:
         samples = []
@@ -558,6 +666,11 @@ class MotionWorker:
             bot.command_joint_state(target)
             reason = bot.abort_reason()
             feedback = bot.get_joint_state()
+            gripper_feedback = (
+                self._gripper.submit(packet["ticks"])
+                if self._gripper is not None
+                else None
+            )
             feedback_ns = time.monotonic_ns()
         except (TimeoutError, MappingError) as exc:
             with self._inbox_lock:
@@ -576,10 +689,12 @@ class MotionWorker:
             return
         kinematics = self._kinematics
         state_pose = target_pose = None
+        closure = gripper_feedback["closure"] if gripper_feedback else 0.0
+        target_closure = gripper_feedback["target_closure"] if gripper_feedback else 0.0
         if kinematics is not None:
             try:
-                state_pose = kinematics.state(feedback, 0.0).tolist()
-                target_pose = kinematics.state(target, 0.0).tolist()
+                state_pose = kinematics.state(feedback, closure).tolist()
+                target_pose = kinematics.state(target, target_closure).tolist()
                 with self._lock:
                     self._fk_error = None
             except Exception as exc:  # noqa: BLE001 - keep motion, flag samples
@@ -592,6 +707,7 @@ class MotionWorker:
             self._last_state_pose = state_pose
             self._last_target_pose = target_pose
             self._last_feedback_ns = feedback_ns
+            self._gripper_feedback = gripper_feedback
             self._last_sample = {
                 "timestamp_ns": feedback_ns,
                 "joints_rad": np.asarray(feedback).tolist(),
@@ -599,8 +715,15 @@ class MotionWorker:
                 "target_rad": np.asarray(target).tolist(),
                 "state_pose10": state_pose,
                 "target_pose10": target_pose,
-                "closure": 0.0,
-                "target_closure": 0.0,
+                "closure": closure,
+                "target_closure": target_closure,
+                "gripper_enabled": self._gripper_factory is not None,
+                "gripper_feedback_time_ns": (
+                    gripper_feedback["feedback_time_ns"] if gripper_feedback else None
+                ),
+                "gripper_position_raw": (
+                    gripper_feedback["position_raw"] if gripper_feedback else None
+                ),
                 "leader_sequence": packet.get("sequence"),
                 "leader_source_monotonic_ns": packet.get("source_monotonic_ns"),
                 "leader_instance": packet.get("instance"),
@@ -617,13 +740,14 @@ class MotionWorker:
         with self._lock:
             self._armed = False
             self._abort = reason
-            self._state = "stopped"
+            self._state = "error" if self._cleanup_fault else "stopped"
         if self.verbose:
             print(f"remote motion stopped: {reason}")
 
     def _close_bot(self) -> None:
         with self._lock:
             bot, self._bot = self._bot, None
+            gripper, self._gripper = self._gripper, None
             self._armed = False
         if bot is not None:
             try:
@@ -631,16 +755,29 @@ class MotionWorker:
             except Exception as exc:  # noqa: BLE001 - shutdown must stay best-effort
                 with self._lock:
                     self._error = f"bot shutdown failed: {exc}"
+                    self._cleanup_fault = self._error
+        if gripper is not None:
+            try:
+                gripper.close()
+            except Exception as exc:
+                with self._lock:
+                    self._error = f"gripper shutdown failed: {exc}"
+                    self._cleanup_fault = self._error
 
 
-def _restore(driver: Any, power: Any, mode: Any) -> None:
+def _restore(
+    driver: Any, power: Any, mode: Any, *, allow_power_on: bool = True
+) -> None:
     driver.stop()
     deadline = time.monotonic() + 5
     while driver.call("operationState") != driver.sdk.OperationState.idle:
         if time.monotonic() >= deadline:
             raise RuntimeError("robot did not stop; verify the teach pendant")
         time.sleep(0.05)
-    driver.power(power == driver.sdk.PowerState.on)
+    # A failed motion may have tripped controller protection. Restoring a prior
+    # "on" value must not silently re-enable it during exception cleanup.
+    if power != driver.sdk.PowerState.on or allow_power_on:
+        driver.power(power == driver.sdk.PowerState.on)
     driver.mode(mode.name)
 
 

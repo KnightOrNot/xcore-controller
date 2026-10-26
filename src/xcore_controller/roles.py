@@ -1,9 +1,4 @@
-"""Read-only hardware migration and simulated watchdog endpoints.
-
-This milestone intentionally has no real motion endpoint. Network input is raw
-GELLO feedback, not a command to the SDK. A later motion implementation must
-validate calibration, limits and startup alignment before enabling the worker.
-"""
+"""GELLO input and remote role endpoints with independent motion/recording owners."""
 
 import fcntl
 import json
@@ -95,6 +90,7 @@ class RemoteSession:
         if command == "handshake":
             with self.lock:
                 self.inbox.handshake(data["instance"])
+                return {"accepted": True, "instance": self.inbox.instance}
         elif command == "leader":
             with self.lock:
                 # Expiry must latch before a new sample refreshes receive time.
@@ -103,6 +99,9 @@ class RemoteSession:
                 except TimeoutError:
                     pass
                 self.inbox.accept(data)
+                # Never read recorder/converter status on the control-data path:
+                # sealing an episode can take seconds, independently of motion.
+                return {"accepted": True, "sequence": self.inbox.sequence}
         elif command == "arm":
             if self.motion is not None:
                 return self.motion.arm()
@@ -151,7 +150,11 @@ class RemoteSession:
                 session_dir = self.recorder.status()["session_dir"]
                 result = self.recorder.stop_session()
                 if session_dir and self.conversion is not None:
-                    result["conversion"] = self.conversion.submit(session_dir)
+                    result["conversion"] = (
+                        self.conversion.submit(session_dir)
+                        if result.get("committed_episodes", 0)
+                        else {"scheduled": False, "reason": "no sealed episodes"}
+                    )
                 return result
             if command == "episode/start":
                 return self.recorder.start_episode()

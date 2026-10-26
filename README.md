@@ -747,7 +747,7 @@ episode，质量报告逐 episode 保存帧数、时间误差和来源 SHA-256�
 2026-10-22 已用远端两 episode 合成会话完成 publish → LeLab／API 读取 →
 本地 `pull_dataset.sh` 校验和 loader 回读（8 帧、2 episodes）。
 
-## 完整数采流程（2026-10-22 阶段 5）
+## 完整数采流程（2026-10-26 更新）
 
 前置：远端已部署 controller 硬件角色（`xcore-controller-hardware.service`，
 disabled，按需启动）、相机服务、3.12 数据环境；本地已安装 controller 环境。
@@ -762,7 +762,38 @@ disabled，按需启动）、相机服务、3.12 数据环境；本地已安装 
 
 该脚本只补缺失 unit（disabled），不会覆盖已有 unit 或启动硬件。
 
+日常从服务全部停止的状态进入数采，只需一个命令：
+
 ```bash
+./scripts/start_remote_record.sh --task "pick and place" --enable-motion
+```
+
+入口会按需启动／检查远端控制器 API、夹爪 API、本地 GELLO、两台 RGBD 相机、
+LeLab 和相应 SSH 连接。已运行的服务会检查后复用；本地 controller 环境缺失时
+会由 uv 准备 Python 3.11 环境。输入一次 `y`，才会进行必要的夹爪激活、两臂对齐和
+arm；成功后 R 开始、S 保存、D 丢弃、Q 退出。首次远端部署、SSH 密钥、网线／USB
+连接和现场标定须已完成，入口不会自动生成标定或覆盖现场配置。
+
+只启动并检查环境，不启用运动：
+
+```bash
+./scripts/start_remote_record.sh --check-only
+```
+
+启动进度和相机／LeLab 网址会直接打印，详细日志保存在本次 `logs/remote-record-*`。
+退出会清理本次创建的本地 GELLO、controller／LeLab 连接及数据桥；远端按需服务和
+相机预览连接保持待命，可用现有 `stop_*` 脚本完全停止。预先手动启动的本地服务会保留。
+
+<details>
+<summary>手动分步调试（可使用 --no-auto-start）</summary>
+
+```bash
+# 0. 远端夹爪 API（只启动服务和读状态）
+./scripts/start_gripper.sh
+# 若提示 not activated：夹爪断电后须先确认周围安全，再显式激活一次：
+uv run --project xcore-gripper-2F85 gripper activate --host 192.168.2.225 --port 5005
+# 已激活时无需重复激活；再次检查就绪状态：
+./scripts/start_gripper.sh --status
 # 1. 远端双相机 API 与采集（不启动运动）
 ./scripts/start_camera.sh --no-open
 # 2. 本地只读 GELLO 服务（占本地跟随锁）
@@ -770,7 +801,7 @@ disabled，按需启动）、相机服务、3.12 数据环境；本地已安装 
 # 3. 远端 SDK owner（只连接和读反馈，不运动）
 ./scripts/start_remote_controller.sh --hardware
 # 4. 数采：先确认现场安全，脚本会 prepare→arm，然后 R 开始／S 保存／D 丢弃／Q 退出
-./scripts/start_remote_record.sh --task "pick and place" --enable-motion
+./scripts/start_remote_record.sh --task "pick and place" --enable-motion --no-auto-start
 #    或旧入口转发：./scripts/start_data_record.sh --remote --task "…" --enable-motion
 # 5. 会话结束时自动排队转换；也可手动查看／重试
 ./scripts/convert_dataset.sh --list
@@ -784,6 +815,30 @@ disabled，按需启动）、相机服务、3.12 数据环境；本地已安装 
 ./scripts/start_camera.sh stop
 ```
 
+</details>
+
 `start_remote_record.sh` 在未加 `--enable-motion` 时只创建会话、不 arm，也不能开始
 episode；退出会丢弃未保存片段并按配置执行退出返回。`Q`／Ctrl+C 都会清理 bridge，
 不会把未完成片段标记为完整。
+
+`arm` 会等待 RT 回调实际推进和新鲜夹爪反馈，成功后才显示就绪并创建会话。
+脚本每秒检查两次远端跟随状态；六轴／夹爪出错或 bridge 退出时会直接显示原因、
+停止会话并返回失败，**故障退出不自动返回姿态**。正常 Q 仍按 return_mode 执行。
+空会话不触发转换。启动就绪超时由远端 `robot.arm_timeout_s` 配置（默认 20 秒）。
+
+远端 `robot.follow_gripper=true` 默认在显式 arm 后同时启动六轴和夹爪跟随，
+ID7 扳机的开／合角度、夹爪速度／力和 raw 开／合位置使用 SDK 配置中的 `[gripper]`。
+启动数据记录前会检查夹爪服务，未激活则在 prepare 前拒绝，不会边动六轴边忽略夹爪故障。
+state 第 10 维来自夹爪实测反馈，action 第 10 维来自扳机目标；反馈异常或过期会停止跟随。
+仅六轴实验可在远端配置中显式设 `robot.follow_gripper=false` 并重启 controller，
+此时元数据会明确标记夹爪关闭及零占位。
+
+S 保存会停止该片段的录制、等待图像落盘并封存；主臂数据桥继续运行，六轴和夹爪
+继续跟随。看到 `committed: true` 表明该片段已封存，完整会话在 Q 后进入转换队列。
+按 S 会立即显示“正在保存”，完成后显示“保存完成”；帧数较多时校验／落盘需等待，
+无需反复按 S。按键无需回车；保存期间重复的 S/D 会忽略，R 最多排队一次作为下一段
+开始请求，Q 会在当前保存完成后退出。退出时会恢复终端原来的回显和输入模式。
+
+2026-10-26 已在现场完成两轮当前姿态保持的 RT 启停、夹爪约 10 raw 单位的小幅动作，
+并封存 31 行真实双 RGBD 验收数据；保存期间主臂数据继续推进。验收不包含六轴大幅轨迹，
+未执行 prepare 或回零。该数据任务标记为 VALIDATION ONLY，不能当作训练示范。

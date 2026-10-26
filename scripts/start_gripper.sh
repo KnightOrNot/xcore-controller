@@ -94,6 +94,7 @@ import fcntl
 import json
 import sys
 import time
+from pathlib import Path
 from xcore_sdk_python.gripper_follow import GripperFollowClient, GripperStreamFault
 
 host, port, reset, action, lock_path, ready_timeout = sys.argv[1:]
@@ -130,6 +131,10 @@ try:
     print("远端夹爪服务已就绪：" + json.dumps(state, ensure_ascii=False))
 except Exception as error:
     print(f"夹爪检查失败：{error}", file=sys.stderr)
+    if "not activated" in str(error):
+        project = Path(lock_path).parent.parent / "xcore-gripper-2F85"
+        print("夹爪上电后尚未激活；确认夹爪周围安全后，显式执行：", file=sys.stderr)
+        print(f'uv run --project "{project}" gripper activate --host {host} --port {port}', file=sys.stderr)
     if "stream fault" in str(error):
         print("先结束统一跟随，再运行 ./scripts/start_gripper.sh --reset-stream 清除断流故障。", file=sys.stderr)
     sys.exit(1)

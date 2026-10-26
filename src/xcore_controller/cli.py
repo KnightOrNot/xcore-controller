@@ -1,6 +1,7 @@
 import argparse
 import json
 import os
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -44,6 +45,18 @@ def request(url, data=None, timeout=2):
         ) from exc
 
 
+def motion_fault(state):
+    motion = state.get("motion", {})
+    if motion.get("armed") and motion.get("state") == "following":
+        return None
+    return (
+        motion.get("abort_reason")
+        or motion.get("error")
+        or motion.get("cleanup_fault")
+        or f"motion is {motion.get('state', 'unavailable')}"
+    )
+
+
 def _main(argv=None):
     root = Path(__file__).resolve().parents[2]
     p = argparse.ArgumentParser(
@@ -79,6 +92,15 @@ def _main(argv=None):
     b.add_argument("--remote-url", required=True)
     s = subs.add_parser("status")
     s.add_argument("url")
+    w = subs.add_parser("watch-motion", help="fail visibly when remote following stops")
+    w.add_argument("url")
+    setup = subs.add_parser("setup-session", help="prepare recording services")
+    setup.add_argument(
+        "service", choices=("controller", "leader", "gripper", "cameras", "dataset")
+    )
+    setup.add_argument(
+        "--activate", action="store_true", help="explicit gripper activation"
+    )
     c = subs.add_parser("command", help="send one control request to a role")
     c.add_argument("url")
     c.add_argument(
@@ -106,9 +128,28 @@ def _main(argv=None):
 
     config = load(a.config).with_environment().data
     roles = config["roles"]
+    if a.command == "setup-session":
+        from . import session_setup
+
+        if a.activate and a.service != "gripper":
+            raise ValueError("--activate only applies to the gripper")
+        action = getattr(session_setup, a.service)
+        result = (
+            action(config, activate=a.activate)
+            if a.service == "gripper"
+            else action(config)
+        )
+        print(json.dumps(result, ensure_ascii=False))
+        return
     if a.command == "status":
         print(json.dumps(request(a.url + "/status"), ensure_ascii=False, indent=2))
         return
+    if a.command == "watch-motion":
+        while True:
+            fault = motion_fault(request(a.url + "/status"))
+            if fault:
+                raise RuntimeError(f"[跟随故障] {fault}")
+            time.sleep(1 / roles["status_poll_hz"])
     if a.command == "command":
         payload = {}
         if a.action == "exit" and a.return_mode:
@@ -215,6 +256,7 @@ def _main(argv=None):
                 sys.setswitchinterval(0.0005)
                 settings = MotionSettings(
                     ip=config["robot"]["ip"],
+                    arm_timeout_s=config["robot"]["arm_timeout_s"],
                     local_ip=roles["remote_local_ip"],
                     lock_path=str(root / "xcore-sdk-python/.follow.lock"),
                     calibration=str(calib),
@@ -242,7 +284,21 @@ def _main(argv=None):
                     return_timeout_s=sdk.return_.motion_timeout_s,
                     return_mode=a.return_mode or config["robot"]["return_mode"],
                 )
-                motion = MotionWorker(settings, state.inbox, state.lock)
+                from .gripper import RemoteGripper
+
+                gripper_factory = None
+                if config["robot"]["follow_gripper"]:
+
+                    def gripper_factory():
+                        return RemoteGripper(
+                            sdk.gripper,
+                            port=config["remote"]["gripper_port"],
+                            feedback_max_age_s=sdk.recording.feedback_max_age_s,
+                        )
+
+                motion = MotionWorker(
+                    settings, state.inbox, state.lock, gripper_factory=gripper_factory
+                )
                 state.attach_motion(motion)
                 sys.path.insert(0, str(root / "xcore-dataset/src"))
                 from .recording import RecordingSettings, SessionRecorder
@@ -270,8 +326,10 @@ def _main(argv=None):
                 dataset_python = Path.home() / roles["remote_dataset_python"]
                 runtime = dataset_python.parents[2]
                 environment = dict(os.environ)
-                environment["PATH"] = (
-                    f"{runtime}/media/bin:" + environment.get("PATH", "/usr/bin:/bin")
+                # The unit's PYTHONPATH contains CPython 3.11 vendor wheels.
+                # Never inherit those extensions in the 3.12 dataset subprocess.
+                environment["PATH"] = f"{runtime}/media/bin:" + environment.get(
+                    "PATH", "/usr/bin:/bin"
                 )
                 environment["LD_LIBRARY_PATH"] = (
                     f"{runtime}/media/lib:"
@@ -310,6 +368,9 @@ def main(argv=None):
         return _main(argv)
     except KeyboardInterrupt:
         return 130
+    except (RuntimeError, OSError, ValueError, subprocess.SubprocessError) as exc:
+        print(f"xcore-controller: {type(exc).__name__}: {exc}", file=sys.stderr)
+        return 1
 
 
 if __name__ == "__main__":

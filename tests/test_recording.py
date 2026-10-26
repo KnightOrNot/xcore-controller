@@ -1,4 +1,5 @@
 import json
+import threading
 import time
 from pathlib import Path
 from types import SimpleNamespace
@@ -194,3 +195,45 @@ def test_camera_urls_must_be_loopback():
         RecordingSettings(
             raw_root="/tmp/x", camera_urls=("http://192.168.2.1:8086", "http://x")
         ).validate()
+
+
+def test_save_status_does_not_wait_for_file_sealing(tmp_path):
+    recorder, _ = make(tmp_path)
+    recorder.start_session()
+    recorder.start_episode()
+    wait_for(lambda: recorder.status()["rows"] >= 1)
+    entered, release = threading.Event(), threading.Event()
+    writer = recorder._episode.writer
+    original = writer.commit
+    results = []
+
+    def slow_commit():
+        entered.set()
+        assert release.wait(3)
+        return original()
+
+    writer.commit = slow_commit
+    save = threading.Thread(target=lambda: results.append(recorder.save_episode()))
+    save.start()
+    try:
+        assert entered.wait(1)
+        status_result = []
+        status = threading.Thread(
+            target=lambda: status_result.append(recorder.status())
+        )
+        status.start()
+        status.join(0.5)
+        assert not status.is_alive(), "status blocked behind file sealing"
+        assert status_result[0]["state"] == "saving"
+    finally:
+        release.set()
+        save.join(4)
+    assert results[0]["committed"] is True
+
+
+def test_empty_session_is_not_marked_for_conversion(tmp_path):
+    recorder, _ = make(tmp_path)
+    recorder.start_session()
+    result = recorder.stop_session()
+    assert result["committed_episodes"] == 0
+    assert result["session"] is None

@@ -32,6 +32,8 @@ SECTIONS = {
     "robot": {
         "ip": "XCORE_ROBOT_IP",
         "follow_max_speed_deg": "XCORE_FOLLOW_MAX_SPEED_DEG",
+        "follow_gripper": "XCORE_FOLLOW_GRIPPER",
+        "arm_timeout_s": "XCORE_ARM_TIMEOUT_S",
         "prepare_speed": "XCORE_PREPARE_SPEED",
         "remote_stale_timeout_s": "XCORE_REMOTE_STALE_TIMEOUT_S",
         "return_mode": "XCORE_RETURN_MODE",
@@ -67,12 +69,14 @@ SECTIONS = {
     "timeouts": {
         "ssh_connect_s": "XCORE_SSH_CONNECT_TIMEOUT",
         "gripper_ready_s": "XCORE_GRIPPER_READY_TIMEOUT",
+        "startup_ready_s": "XCORE_STARTUP_READY_TIMEOUT",
     },
     "roles": {
         "bind_host": "XCORE_ROLE_BIND_HOST",
         "gello_port": "XCORE_GELLO_SERVICE_PORT",
         "controller_port": "XCORE_CONTROLLER_SERVICE_PORT",
         "leader_poll_hz": "XCORE_LEADER_POLL_HZ",
+        "status_poll_hz": "XCORE_STATUS_POLL_HZ",
         "leader_timeout_s": "XCORE_LEADER_TIMEOUT_S",
         "remote_local_ip": "XCORE_REMOTE_LOCAL_IP",
         "remote_project": "XCORE_REMOTE_PROJECT",
@@ -165,6 +169,8 @@ def _builtin(section: str, key: str) -> Any:
     builtin = {
         ("robot", "ip"): "192.168.2.160",
         ("robot", "follow_max_speed_deg"): 75,
+        ("robot", "follow_gripper"): True,
+        ("robot", "arm_timeout_s"): 20.0,
         ("robot", "prepare_speed"): 4000,
         ("robot", "remote_stale_timeout_s"): 3.0,
         ("robot", "return_mode"): "zero",
@@ -190,10 +196,12 @@ def _builtin(section: str, key: str) -> Any:
         ("paths", "camera_project"): "camera-realsense-d435i",
         ("timeouts", "ssh_connect_s"): 5,
         ("timeouts", "gripper_ready_s"): 15,
+        ("timeouts", "startup_ready_s"): 30.0,
         ("roles", "bind_host"): "127.0.0.1",
         ("roles", "gello_port"): 9011,
         ("roles", "controller_port"): 9012,
         ("roles", "leader_poll_hz"): 25,
+        ("roles", "status_poll_hz"): 2,
         ("roles", "leader_timeout_s"): 0.5,
         ("roles", "remote_local_ip"): "192.168.2.225",
         ("roles", "remote_project"): "project/xcore-controller",
@@ -216,7 +224,9 @@ def validate(values: Values) -> None:
         ("robot", "follow_max_speed_deg"),
         ("robot", "prepare_speed"),
         ("robot", "remote_stale_timeout_s"),
+        ("robot", "arm_timeout_s"),
         ("timeouts", "gripper_ready_s"),
+        ("timeouts", "startup_ready_s"),
         ("roles", "leader_timeout_s"),
         ("recording", "raw_fps"),
         ("recording", "camera_max_frame_age_s"),
@@ -247,6 +257,8 @@ def validate(values: Values) -> None:
             raise ValueError(f"robot.{key} must be positive")
     if not 0.5 <= values.get("robot.remote_stale_timeout_s") <= 10:
         raise ValueError("robot.remote_stale_timeout_s must be in 0.5..10")
+    if not 1 <= values.get("robot.arm_timeout_s") <= 30:
+        raise ValueError("robot.arm_timeout_s must be in 1..30")
     if values.get("robot.follow_max_speed_deg") > 75:
         raise ValueError("robot.follow_max_speed_deg is limited to 75 deg/s")
     mode = values.get("robot.return_mode")
@@ -265,6 +277,8 @@ def validate(values: Values) -> None:
             raise ValueError("invalid role service port")
     if not 1 <= values.get("roles.leader_poll_hz") <= 100:
         raise ValueError("leader_poll_hz must be in 1..100")
+    if not 1 <= values.get("roles.status_poll_hz") <= 10:
+        raise ValueError("status_poll_hz must be in 1..10")
     fps = values.get("recording.dataset_fps")
     if not isinstance(fps, int) or fps <= 0:
         raise ValueError("recording.dataset_fps must be a positive integer")

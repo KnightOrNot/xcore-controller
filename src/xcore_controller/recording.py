@@ -140,6 +140,9 @@ class SessionRecorder:
         self.motion = motion
         self._camera_factory = camera_factory
         self._lock = threading.RLock()
+        # Serialize lifecycle operations, but keep status and the recorder's
+        # short state updates independent of camera I/O, hashing and joins.
+        self._operation_lock = threading.RLock()
         self._session_id: str | None = None
         self._session_dir: Path | None = None
         self._task = settings.task
@@ -154,7 +157,7 @@ class SessionRecorder:
 
     # ------------------------------------------------------------------ session
     def start_session(self, task: str | None = None) -> dict[str, Any]:
-        with self._lock:
+        with self._operation_lock:
             if self._session_id is not None:
                 return self.status()
             task = (task or self.settings.task).strip()
@@ -184,7 +187,7 @@ class SessionRecorder:
                     "calibration": self.motion.settings.calibration,
                     "tcp": "flange (identity toolset; gripper TCP not verified)",
                     "action_source": "accepted_absolute_target_after_soft_limits",
-                    "gripper": "not integrated; closure placeholder 0.0",
+                    "gripper": self._gripper_description(),
                     "wrench": "two sensors reserved; validity false",
                     "camera_max_frame_age_s": self.settings.max_frame_age_s,
                 },
@@ -195,7 +198,7 @@ class SessionRecorder:
     def start_episode(self) -> dict[str, Any]:
         from xcore_dataset.raw import FORMAT, EpisodeWriter
 
-        with self._lock:
+        with self._operation_lock:
             if self._session_id is None or self._session_dir is None:
                 raise RecordingError("start a session before an episode")
             if self._episode is not None:
@@ -241,7 +244,7 @@ class SessionRecorder:
                 "clock_note": "camera receive times are from the same remote host; "
                 "this is software alignment, not hardware synchronization",
                 "robot_model": "vendor getCartPose (same model for state/action)",
-                "gripper": "not integrated; closure placeholder 0.0",
+                "gripper": self._gripper_description(),
                 "wrench": "two sensors reserved; validity false",
             }
             writer = EpisodeWriter(directory, manifest)
@@ -274,8 +277,10 @@ class SessionRecorder:
             return self.status()
 
     def save_episode(self) -> dict[str, Any]:
-        with self._lock:
+        with self._operation_lock:
             episode = self._require_episode()
+            with self._lock:
+                self._state = "saving"
             self._stop_recorder()
             failure = self._error
             try:
@@ -301,8 +306,10 @@ class SessionRecorder:
             }
 
     def discard_episode(self, reason: str | None = None) -> dict[str, Any]:
-        with self._lock:
+        with self._operation_lock:
             episode = self._require_episode()
+            with self._lock:
+                self._state = "discarding"
             self._stop_recorder()
             for camera in episode.cameras.values():
                 try:
@@ -326,13 +333,20 @@ class SessionRecorder:
             return {"episode": episode.index, "directory": str(episode.directory)}
 
     def stop_session(self) -> dict[str, Any]:
-        with self._lock:
+        with self._operation_lock:
             if self._episode is not None:
                 raise RecordingError("save or discard the active episode first")
+            committed = (
+                sum(
+                    1 for _ in (self._session_dir / "episodes").glob("*/COMMITTED.json")
+                )
+                if self._session_dir is not None
+                else 0
+            )
             self._state = "closed"
             self._session_id = None
             self._session_dir = None
-            return self.status()
+            return dict(self.status(), committed_episodes=committed)
 
     # ------------------------------------------------------------------- thread
     def _run(self) -> None:
@@ -365,10 +379,10 @@ class SessionRecorder:
                         with self._lock:
                             self._rows += 1
                         last_sample_ns = sample["timestamp_ns"]
-                elif sample is None and self._state == "recording":
+                elif self._state == "recording":
                     missing_since = missing_since or started
                     if started - missing_since > self.settings.max_frame_age_s:
-                        raise RecordingError("no robot samples while recording")
+                        raise RecordingError("no fresh robot samples while recording")
             except Exception as exc:  # noqa: BLE001 - latched and surfaced by status
                 with self._lock:
                     self._error = f"{type(exc).__name__}: {exc}"
@@ -449,11 +463,21 @@ class SessionRecorder:
             "target_rad": list(sample["target_rad"]),
             "closure": sample.get("closure", 0.0),
             "target_closure": sample.get("target_closure", 0.0),
+            "gripper_enabled": sample.get("gripper_enabled", False),
+            "gripper_feedback_time_ns": sample.get("gripper_feedback_time_ns"),
+            "gripper_position_raw": sample.get("gripper_position_raw"),
             "leader_sequence": sample.get("leader_sequence"),
             "leader_source_monotonic_ns": sample.get("leader_source_monotonic_ns"),
         }
 
     # ------------------------------------------------------------------ helpers
+    def _gripper_description(self) -> str:
+        if self.motion.status().get("gripper_enabled"):
+            return (
+                "Robotiq measured closure / GELLO ID7 desired closure; 0=open, 1=closed"
+            )
+        return "disabled explicitly; closure placeholder 0.0"
+
     def _require_episode(self) -> _Episode:
         if self._episode is None:
             raise RecordingError("no episode is active")
@@ -461,11 +485,12 @@ class SessionRecorder:
 
     def _stop_recorder(self) -> None:
         self._stop.set()
-        thread, self._thread = self._thread, None
+        thread = self._thread
         if thread is not None:
             thread.join(timeout=5)
             if thread.is_alive():
                 raise RecordingError("recorder thread did not stop")
+        self._thread = None
 
     def status(self) -> dict[str, Any]:
         with self._lock:

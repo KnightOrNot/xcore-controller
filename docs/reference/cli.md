@@ -10,10 +10,20 @@
 | `./scripts/setup.sh [--check-only] [--skip-submodules]` | 初始化子模块与五个 Python 环境 |
 | `./scripts/start_gello_follow.sh [选项]` | 只读预览或真实六轴＋夹爪跟随 |
 | `./scripts/start_data_record.sh [选项]` | 跟随并记录从臂反馈，退出后转换 |
+| `./scripts/start_remote_record.sh --task TEXT --enable-motion` | 一键启动 GELLO／控制器／夹爪／双 RGBD／LeLab 及连接，确认后进入数采 |
 | `./scripts/start_gripper.sh [选项]` | SSH 按需启动远端夹爪服务；`--status` 只读 |
 | `./scripts/stop_gripper.sh` | 完全停止远端夹爪服务（跟随锁占用时拒绝） |
 | `./scripts/start_camera.sh [preview|connect|start|stop|status|info|snapshot|disconnect]` | 双 D435i 管理 |
 | `./scripts/stop_camera.sh [--camera all|cam1|cam2]` | 停止远端相机 API 并清理隧道 |
+
+`uv run xcore-controller watch-motion http://127.0.0.1:9012` 用于监测已启动的远端跟随；
+检测到 stopped／unarmed／不可达时打印原因并非零退出。远端数采脚本自动管理它。
+正常 Q 按 return_mode 返回，健康监测发现故障时停止会话、不自动返回姿态。
+
+远端数采入口默认自动准备服务；`--check-only` 只启动并检查，不激活、不对齐、不 arm。
+`--no-auto-start` 用于已有全部服务的手动调试。`--no-prepare` 跳过 NRT 对齐，arm 仍检查门限。
+一次现场 `y` 确认涵盖夹爪按需激活、对齐与跟随。Q 会结束本次自建的本地后台连接，
+远端服务仍按需待命，供后台转换和下次使用。
 
 ### start_gello_follow.sh
 

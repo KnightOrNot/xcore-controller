@@ -10,6 +10,10 @@
 ip = "192.168.2.160"
 # 六轴实时跟随的软件速度上限，单位 °/s；SDK 允许的最大值为 75。
 follow_max_speed_deg = 75
+# 新远端 hardware 角色在显式 arm 后同时跟随 ID7 扳机；速度/力/标定来自 SDK 配置。
+follow_gripper = true
+# arm 必须确认 RT 回调推进及新鲜夹爪反馈后才返回成功；该值为启动就绪超时。
+arm_timeout_s = 20.0
 # 启动对齐使用的 SDK 速度参数（mm/s），不是轴速度。
 prepare_speed = 4000
 # 远端 HTTP 数据桥允许的最长无新主臂样本时间（秒）。超过后停止跟随并锁定。
@@ -62,12 +66,15 @@ camera_project = "camera-realsense-d435i"
 # SSH 连接与远端服务操作的超时，秒。
 ssh_connect_s = 5
 gripper_ready_s = 15
+# 单个服务启动及反馈就绪的等待上限；缺少部署/硬件时明确超时，不进入运动。
+startup_ready_s = 30.0
 
 [roles]
 bind_host = "127.0.0.1"
 gello_port = 9011
 controller_port = 9012
 leader_poll_hz = 25
+status_poll_hz = 2
 leader_timeout_s = 0.5
 remote_local_ip = "192.168.2.225"
 remote_project = "project/xcore-controller"

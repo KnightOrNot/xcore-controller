@@ -2,7 +2,7 @@
 
 本文用于让后续 AI 接手工程。先阅读本文、`README.md` 和将要修改的子项目文档；
 以代码、现场配置和实际测试结果为准，不能将历史日志或计划当作已验收功能。
-最后更新：2026-10-22。默认参数已统一到各项目的 `config/default.toml`，文档结构对齐
+最后更新：2026-10-26。默认参数已统一到各项目的 `config/default.toml`，文档结构对齐
 agilex；双相机第一版已部署并通过硬件采集测试，验收边界与本次交接见文末。
 
 ## 用户目标和工程边界
@@ -862,3 +862,145 @@ Robot／Teleoperator adapter 只附着已有 worker，断开只释放客户端�
 - 下次处理顺序：先在示教器/HMI 确认无急停并上电 → 读取 `xcore controller-logs`
   → 确认 `operationState=idle`、`powerState=on` → 再重试返回。不得用反复 arm／movej
   掩盖掉电或保护状态，也不要在未确认安全路径时执行 zero 返回。
+
+### Q 退出返回：模式排序修复（2026-10-26，真机返回待验证）
+
+- 已重连远端 `rokae@192.168.2.225`，只读查询 CR7：manual/off/idle，
+  J≈`[175.77, 0.22, -0.30, 3.64, -1.61, 3.22]°`，没有运动或上电。
+  控制器最新 10 条错误均为 10-22 17:58 左右的 50115 奇异点；不是 21:22 的
+  同时段故障证据，不能由这些历史条目推断 Q 掉电原因。
+- SDK 日志显示 21:22:16.162 上电后，16.165 又设置 NRT，16.248 moveStart，
+  随后立即检测到 off。厂商 `example/setloop.py`／`move_command.py` 对 RT→NRT
+  的注释明确提到下电。这支持模式切换顺序的疑点，但尚未通过真机重现确认唯一根因。
+- 修复 controller prepare／return：先设置 NRT，再 automatic／power on；
+  `movej(..., motion_mode_prepared=True)` 跳过第二次模式切换，排队前复查上电。
+  默认 SDK 调用保留模式设置，但如随后已下电则在 moveReset 前拒绝，不隐式重新上电。
+- 故障清理 `_restore` 不再在返回失败后恢复 prior power=on；Q 清理失败显式输出提示
+  并返回非零退出码，仍清理 bridge／session，不把失败伪装成正常完成。
+- controller 74 项、SDK 驱动／跟随／准备／返回相关 83 项回归通过。
+  数据工具另修复 Python 3.11 支持与无条件 3.12 extras 的冲突：LeRobot、Torch、
+  LeLab 及 uv override 增加版本条件，3.12 dataset/app 六项测试通过。
+- **Q 的真机返回尚未验收**。后续现场按既有入口确认路径后测试；若仍报错，保留
+  同时段 journal／SDK 日志和最新控制器日志，不自动重试返回或上电。
+- 上述三个运行文件已同步到远端并核对 SHA-256，远端导入／shell 语法检查通过；
+  原文件备份为 `~/.local/state/xcore-q-fix-20261026.P8UhnK/`。
+  hardware／readonly／simulate unit 均保持 inactive；本轮未启动跟随或执行 Q 返回。
+  独立 Python 3.11 环境导入 raw writer 通过，uv lock 检查通过。修改尚未 commit／push。
+
+### R/S 保存断流及新链路夹爪缺失修复（2026-10-26）
+
+- 现场：session_20261026_095352 的 episode_000000 保存返回 `committed=true`、466 行，
+  但本地 bridge 的 `/leader` 超过 5 秒无应答，远端 3 秒看门狗停止跟随。
+  根因：`RemoteSession.call("leader")` 在接收后调用全量 `status()`，间接等待
+  `SessionRecorder.save_episode()` 持有的状态锁；保存还在同一状态锁内 join 记录线程，
+  而记录线程更新行数／错误也需要该锁。
+- 修复：handshake／leader 只返回 accepted／sequence，不查询 recorder 或 converter；
+  录制生命周期操作使用独立 operation lock，状态锁仅保护短状态更新，不跨 camera I/O、
+  commit 或 join。状态可在保存期间显示 saving；无新机器人样本时将片段判为失败。
+- 新远端数采链路原本没有夹爪 follower，state/action 的 closure 硬编码为 0，
+  README 也遗漏夹爪启动。新增 `gripper.py` 复用 SDK 的 TCP GripperFollower：
+  远端 loopback 接入现有独立服务，arm 前只读检查激活，arm 后由独立线程下发目标，
+  SDK 线程仅提交最新值和读取缓存；disarm／断流／错误／退出时停止夹爪。
+  ID7 使用 SDK `[gripper]` 的角度／位置／速度／力配置，默认 `robot.follow_gripper=true`。
+  state[-1] 写实测 closure，action[-1] 写扳机期望，额外记录 raw 位置及反馈时间；
+  反馈过期／错误会停止跟随。显式禁用时元数据保留说明，不伪装实测。
+- 远端夹爪 unit 原为 inactive，已启动其 `--no-activate` API；只读检查确认夹爪尚未激活，
+  本轮未发送 activate、set_target 或开合。用户须确认空间后执行 README 中的
+  `uv run --project xcore-gripper-2F85 gripper activate --host 192.168.2.225 --port 5005`，
+  再开启数采。入口在 prepare 前检查夹爪，不会只动六轴却忽略夹爪未就绪。
+- 用户确认已退出原会话后再次检查 session=null、armed=false，备份至
+  `~/.local/state/xcore-record-fix-20261026.ARX6ie/`，部署并重启 hardware API；
+  最终 idle／armed=false、gripper_enabled=true，未自动恢复跟随或执行返回。
+  夹爪 API active、disabled；未改变开机自启策略。
+- 另发现 Q 后后台转换因 cwd `~/project/xcore-controller/xcore-dataset` 不存在而失败。
+  远端是源码快照、两新项目在同级，已补两个缺失符号链接指向 `../xcore-dataset` 和
+  `../xcore-adapters`，没有替换现有源码或数据；转换 CLI 入口验证可用。
+  这不代表原真实会话已转换发布，需另查转换任务状态。
+- 原 466 行片段的 COMMITTED.json／1878 个文件校验通过，保留不覆盖；其夹爪数据
+  为旧版本明确标记的零占位，无法事后补回实测。用户后续应新录制含夹爪反馈的片段。
+- controller 81 项回归通过，包括慢保存时连续接收主臂数据、保存期间状态可读、
+  夹爪 TCP follower 模拟、实测／目标分离、未激活拒绝起臂和停臂时停夹爪；
+  改动 Ruff、shell 语法通过。真实夹爪跟随与修复后的 R/S 仍待现场验证。
+  README／配置参考／CHANGELOG 已同步；当前修改未 commit／push。
+
+### 跟随启动时序、RT 收尾与真实小幅验收（2026-10-26，最新）
+
+- 用户实测六轴／夹爪均不跟随，终端无错误。日志确认上轮新接入的夹爪初始反馈
+  在 RT 初始化期间超过 0.75 s；两端一起停止。重复运行还出现
+  `Attempted to start multiple motions`。旧 `/arm` 在实际 RT 初始化前便返回成功，
+  shell 没有持续监测远端停止原因，形成假成功。前述“81 项通过”没有覆盖该硬件时序。
+- GripperFollower 增加可选 `poll_when_idle`，新远端链路在无目标时只读刷新反馈，
+  不发送 set_target。MotionWorker 的 arm 进入 arming、保持实测关节姿态，等待
+  RT active、至少 3 次回调和新鲜夹爪反馈，再复查主臂门限并返回 armed=true。
+  默认超时 20 s（robot.arm_timeout_s，1..30）；预热只容忍反馈暂未刷新，运行中
+  的过期／网络故障仍严格停止。stop 可取消正在预热的 arm。
+- SDK 公开 startLoop docstring 明确说明：`startLoop(False)` 需要 stopLoop，
+  否则无法开始下一周期。去除已废弃且重复启动 loop 的零距离 RT MoveJ；
+  在最终回调 setFinished 结束后 stopLoop，再 stopMove；close 检查伺服线程结束，
+  清理失败会锁住后续 prepare／arm／return，不能静默复用残留 RT 对象。
+  远端 bot 使用 CheckedRobot 检查厂商错误码，与旧直接跟随链一致。
+- 新 `watch-motion` 及脚本后台健康监测每秒 2 次检查远端（roles.status_poll_hz），
+  无需再按键即显示故障并退出；故障时 stop／丢弃未保存片段／关闭 session，
+  不自动返回。正常 Q 的返回模式不变。空 session 不提交转换。
+- 同时修复转换 ABI 污染：SDK unit 的 PYTHONPATH 指向 vendor311，原 3.12 转换
+  子进程继承后加载 3.11 NumPy 而失败。ConversionScheduler 复制并去掉 PYTHONPATH／
+  PYTHONHOME，保留 FFmpeg 环境。远端已实测导入 dataset-venv 自己的 NumPy 和
+  TorchCodec；未把原失败空会话伪报为已转换。
+- 用户明确确认现场安全，授权当前姿态零位移 RT 启停两次及夹爪小幅开合。
+  使用临时 `/tmp/xcore-follow-acceptance.py`，映射固定为刚读到的实测关节值，
+  仅测试此临时进程，不修改现场标定；未执行 prepare／return／回零。
+  同一个 SDK 会话连续两轮成功 arm（约 0.84／0.83 s），转发 254／50 次，
+  两次均明确 stopLoop／stopMove 并正常结束，无 cleanup_fault。
+  最大实测关节漂移约 0.00133°。
+- 夹爪目标从当前位置增加约 10 raw 再返回，记录到实测 closure 约 0.00784～0.05490、
+  目标约 0.01134～0.05129，确认真实响应。第一轮同时通过 HTTP R/S 录制双 RGBD，
+  31 行已封存，保存期间 forwarded 持续推进、publisher_errors=[]。
+  原始数据在 `~/project/xcore-data/raw/validation-stationary-20261026/` 下的
+  `session_20261026_103712/episodes/episode_000000`，任务标记 VALIDATION ONLY，
+  主臂输入为测试固定值，不是训练示范；本轮未转换／发布这段验收数据。
+- controller 88 项、SDK 全量 225 项离线回归通过；包含终端无按键仍发现后台故障、
+  故障不回零、夹爪反馈预热、异步 arm 错误、RT 调度收尾与 ABI 隔离。
+  常规 API 已恢复为 idle／armed=false、gripper_enabled=true、cleanup_fault=null；
+  现有 GELLO 与 SSH 隧道保留，未自动进入真实 GELLO 轨迹跟随。
+  此验收覆盖启动／保持／夹爪小幅动作／R/S／重复启停，不代替六轴大范围轨迹验收。
+  修改仍未 commit／push。
+
+### 一条命令准备数采环境（2026-10-26，最新入口）
+
+- `scripts/start_remote_record.sh --task "…" --enable-motion` 默认自动启动并验证：
+  远端 hardware API／SSH 连接、夹爪 API、本地 GELLO 七通道、双 RGBD 和 LeLab。
+  新增 `session_setup.py`／`xcore-controller setup-session` 复用已有相机启动器、
+  role launcher 与夹爪 TCP 协议。有效服务可复用；活动跟随／会话、错误角色、
+  未完成 RT 清理、FK 不可用、主臂帧过期及相机录制配置缺失均在运动前拒绝。
+- 准备阶段只读检查夹爪；一次 `y` 现场确认后才按需激活，已激活时不重复初始化。
+  单纯旧断流锁在确认且 controller 未 armed／无活动会话后以 stop 清除，其他故障拒绝。
+  默认自动创建缺失的本地 controller uv 3.11 环境，但不编造现场标定、SSH 登录凭据
+  或自动替换远端部署。这里的“从零”指已有部署下所有日常服务停止的状态。
+- 新 `--check-only` 启动并检查服务后退出，无激活／prepare／arm；
+  `--no-auto-start` 保留手动调试。日志为 `logs/remote-record-*`，相机完整启动输出写
+  cam1／cam2-startup.log，终端显示阶段及网址。`timeouts.startup_ready_s` 默认 30 s。
+- 增加单数采入口锁，启动的本地 GELLO／controller 与 LeLab 连接属于独立进程组，
+  失败／取消／退出时清理自建进程，预存本地服务保留。远端 API 按需保持运行，以便
+  会话退出后后台转换；相机连接复用既有 SSH control socket。没有启用开机自启。
+- 现场确认无活动会话、夹爪静止后，停止旧 GELLO、旧 controller 隧道，以及所有
+  controller／夹爪／相机／dataset 远端服务，然后执行一条 `--check-only`：
+  五阶段均通过，真实七通道反馈、两路新鲜 RGBD、夹爪状态、LeLab 列表均可用。
+  再次执行检查也通过，复用了远端服务；未上电、未激活、未对齐或进入跟随。
+- 新增冷启动、服务复用、取消不动作、单次确认顺序、错误服务／忙会话／陈旧输入拒绝
+  和激活幂等性测试；controller 当前 99 项通过。README 已以单命令作为日常入口，
+  分步流程保留为手动调试。修改未 commit／push。
+
+### S 保存看似无响应与按键积压（2026-10-26）
+
+- 用户 session_20261026_111111/episode_000000 返回 rows=420、committed=true，
+  COMMITTED.json 实际存在；远端 recording 无错误，跟随未因 S 中断。此处未验证
+  LeRobot 转换成品，不以 scheduler 的 ready 字段替代数据成品校验。
+- S 同步等待图像落盘／校验／封存，原入口没有保存中提示；忙时输入的重复 S/D
+  在保存完成后被逐个消费，因片段已经关闭而显示“没有活动 episode”。该提示只在
+  S/D 分支出现，不能把它解释为 R 请求保存，或把延迟输出当作片段丢失。
+- 入口新增保存中／完成提示，交互阶段持续 noncanonical／noecho（保留 Ctrl+C，
+  关闭 Ctrl+S 流控），退出先恢复 stty。保存／丢弃后收集忙时积压键，忽略 S/D，
+  R 保留一次作为下一段开始请求，Q 优先作为保存后退出。非 TTY 的脚本输入仍按原顺序处理。
+- 已用真实 PTY 验证不需回车的 R/S、慢保存即时提示、积压 ssdr 后只再次 start 一次、
+  无“没有活动 episode”刷屏，以及 Q 后 termios 完整恢复。只修改本地／远端脚本，
+  无须重启控制服务，未进行额外机械臂运动；修改未 commit／push。

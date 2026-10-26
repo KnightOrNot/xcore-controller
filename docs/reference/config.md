@@ -16,6 +16,8 @@ controller 默认配置位于 [config/default.toml](../../config/default.toml)�
 [robot]
 ip = "192.168.2.160"
 follow_max_speed_deg = 75
+follow_gripper = true
+arm_timeout_s = 20.0
 prepare_speed = 4000
 remote_stale_timeout_s = 3.0
 return_mode = "zero"
@@ -23,6 +25,12 @@ return_mode = "zero"
 
 - `ip`：CR7 控制器地址，不是 Linux 服务机。
 - `follow_max_speed_deg`：六轴实时跟随软件限速，必须 `0 < v <= 75`。
+- `follow_gripper`：新远端 hardware 角色显式 arm 后同时跟随夹爪，默认 true；
+  扳机映射、速度／力来自 SDK 的 `[gripper]`。用远端配置或远端 unit 环境变量
+  `XCORE_FOLLOW_GRIPPER` 覆盖，修改后重启服务。本地环境变量不能自动修改远端 unit。
+  设为 false 的记录会明确标记夹爪禁用和零占位。
+- `arm_timeout_s`：等待 RT 回调和夹爪反馈就绪的最大秒数，范围 1..30，默认 20。
+  启动期间保持当前实测关节姿态；失败返回具体错误，不提前宣称 armed。
 - `prepare_speed`：启动对齐的 SDK 速度参数（mm/s），与轴速度不是同一量纲。
 - `remote_stale_timeout_s`：远端 HTTP 数据桥允许的无新样本时间（0.5..10 s）。
   机器人保持最后目标，超时后停止并锁定；1 s 对跨机 HTTP/GIL 抖动过紧。
@@ -111,9 +119,13 @@ camera_project = "camera-realsense-d435i"
 [timeouts]
 ssh_connect_s = 5
 gripper_ready_s = 15
+startup_ready_s = 30.0
 ```
 
 分别对应 `XCORE_SSH_CONNECT_TIMEOUT` 和 `XCORE_GRIPPER_READY_TIMEOUT`。
+`startup_ready_s` 对应 `XCORE_STARTUP_READY_TIMEOUT`，是一键入口等待单个服务就绪的
+最大秒数（默认 30），相机启动包装命令最多等待两倍时间。未知服务、活动会话、
+陈旧 GELLO 数据或未配置的相机无损记录会在进入运动前拒绝。
 
 ## 自定义实验
 

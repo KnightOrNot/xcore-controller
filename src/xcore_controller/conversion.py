@@ -7,6 +7,7 @@ dataset project's job queue, which survives crashes and never overwrites output.
 
 from __future__ import annotations
 
+import os
 import subprocess
 import threading
 import time
@@ -29,7 +30,10 @@ class ConversionScheduler:
         self.data_root = Path(data_root).expanduser().resolve()
         self.enabled = bool(enabled)
         self.timeout_s = timeout_s
-        self.env = env
+        self.env = dict(os.environ if env is None else env)
+        # Never load CPython 3.11 vendor wheels in the 3.12 dataset environment.
+        for name in ("PYTHONPATH", "PYTHONHOME"):
+            self.env.pop(name, None)
         self._lock = threading.Lock()
         self._last: dict | None = None
         self._thread: threading.Thread | None = None

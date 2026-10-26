@@ -3,6 +3,30 @@
 本文件记录 controller 及顶层入口的行为变化。子项目的详细变更见各自的
 `CHANGELOG.md`。
 
+## 2026-10-26
+
+- 修正 S 保存时无即时反馈和忙时按键积压：显示保存／完成提示，保持单键终端模式，
+  忽略积压 S/D，保留一次 R 或优先 Q；退出恢复终端设置。增加真实伪终端交互回归。
+- `start_remote_record.sh` 默认一键准备控制器、夹爪、GELLO、双 RGBD、LeLab 和 SSH
+  连接，复用已有服务，一次确认后按需激活夹爪并进入跟随；新增 `--check-only`／
+  `--no-auto-start`、就绪校验、单实例锁及自建后台进程清理。现场无运动冷启动通过。
+- 修复夹爪初始反馈在 RT 启动期间过期导致整机停止：启动前持续只读轮询，arm 等待
+  RT 回调推进和新鲜反馈后才成功，启动异常直接返回给终端。
+- SDK 去除额外零距离 RT MoveJ 初始化，最终回调结束后显式 stopLoop／stopMove；
+  同会话两轮 RT 实机启停通过。清理未完成时拒绝后续运动，避免叠加会话。
+- 新增 watch-motion 和脚本健康监测，远端异常不再静默；故障退出先 stop、不自动返回。
+  转换子进程隔离 3.11 PYTHONPATH／PYTHONHOME，空会话不提交转换。
+- 修复 S 保存期间 `/leader` 应答间接等待 recorder 状态锁的问题；主臂接收只做
+  快速确认，录制生命周期锁与状态锁分离，保存不再持状态锁等待记录线程退出。
+- 新远端数采链路接入已有 TCP 夹爪连续跟随：显式 arm 前只读检查激活状态，
+  arm 后映射 ID7，独立线程下发；state/action 记录实测／期望开合，停臂时停止夹爪。
+  `[robot].follow_gripper=true` 默认开启，入口增加夹爪就绪预检和未激活提示。
+- 修复远端 prepare／Q 返回的模式设置顺序：先选择 NRT，再切自动和上电，
+  `movej` 不重复切模式；失败清理不恢复上电，脚本退出返回失败时保留非零退出码。
+  离线回归通过，真机返回待现场验证。
+- 修复 dataset 子模块 Python 3.11 raw writer 与 Python 3.12 LeRobot／LeLab
+  extras 的依赖条件，使 uv 可生成跨版本锁文件。
+
 ## 2026-10-22
 
 - 新增远端运动角色：`remote-serve --hardware`、显式 `arm/prepare/stop/exit/pose`、
