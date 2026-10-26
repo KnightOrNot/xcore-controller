@@ -35,12 +35,16 @@ CR7 实时控制、双 D435i 采集、数据封存与转换、LeLab 浏览都在
 
 ## 快速开始
 
-**前提。** 控制电脑需要 `git`、`pyenv`、`uv`，以及 Python 3.11.16 和 3.12.14。
+### 1. 前提
+
+控制电脑需要 `git`、`pyenv`、`uv`，以及 Python 3.11.16 和 3.12.14。
 远端主机必须**已经完成部署**（见[远端部署](docs/remote-deploy.md)），且本地能用密钥
 免密 `ssh` 登录。现场需要：GELLO 接本地 USB，CR7（`192.168.2.160`）、夹爪和两台
 D435i 接在远端。
 
-**克隆。** `.gitmodules` 里是 SSH 地址；没有配置 GitHub SSH 时，最后一行用
+### 2. 克隆
+
+`.gitmodules` 里是 SSH 地址；没有配置 GitHub SSH 时，最后一行用
 `insteadOf` 临时改走 HTTPS。已经配好密钥的可以直接 `git clone --recurse-submodules`。
 
 ```bash
@@ -50,13 +54,17 @@ cd xcore-controller
 git -c url."https://github.com/".insteadOf=git@github.com: submodule update --init
 ```
 
-**初始化环境。** 这一步建 5 个独立 Python 环境（控制器与各子项目）并自检，不连接硬件。
+### 3. 初始化环境
+
+这一步建 5 个独立 Python 环境（控制器与各子项目）并自检，不连接硬件。
 
 ```bash
 ./scripts/setup.sh
 ```
 
-**自检。** 三条命令都不上电、不激活夹爪、不发送运动目标。
+### 4. 自检
+
+三条命令都不上电、不激活夹爪、不发送运动目标。
 
 ```bash
 ./scripts/setup.sh --check-only
@@ -78,7 +86,9 @@ GELLO、两台相机和 LeLab，任何一步失败都会在进入运动前退出
 ./scripts/stop_gripper.sh
 ```
 
-**第一次运行。** 标定文件已随仓库提供，但**只对应 192.168.2.160 这台 CR7**；
+### 5. 第一次运行
+
+标定文件已随仓库提供，但**只对应 192.168.2.160 这台 CR7**；
 换机械臂必须重新标定，见
 [操作手册 · 首次标定](docs/OPERATIONS.md#6-首次标定建立主臂与从臂的对应关系)。
 
