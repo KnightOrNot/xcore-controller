@@ -75,7 +75,8 @@ uv run --project xcore-sdk-python xcore follow-check
 uv run --project xcore-sdk-python xcore follow-calibrate --ref-current
 ```
 
-`config/cr7_calib.json` 和 `config/exit_pose.json` 是现场文件，默认被 Git 忽略。
+`config/exit_pose.json` 是 Git 忽略的现场文件；`config/cr7_calib.json` 由 SDK 子模块提供，
+内容仅对应 192.168.2.160，换机械臂必须重新标定。
 新 clone 不能凭空运行真机跟随；退出返回姿态也必须由现场重新采集或提供。
 
 ## 验证

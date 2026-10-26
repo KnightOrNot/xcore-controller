@@ -33,7 +33,8 @@ GELLO 串口、远端夹爪/相机主机、跟随限速、记录路径和超时�
 原有五个 submodule 各自提供 `config/default.toml`，由各自 CLI 的 `--config` 覆盖。
 新增 `xcore-adapters`、`xcore-dataset` 已作为独立 submodule 引入；dataset 有独立配置，
 adapter 是无设备访问的数据包。新入口环境安装见[首阶段说明](REMOTE_DATA_MILESTONE.md)。
-现场标定、退出姿态、相机 JSON 和数据集仍是 Git 忽略的现场文件，不写入默认配置。
+退出姿态、数据集和日志仍是 Git 忽略的现场文件，不写入默认配置；标定与相机 profile 已随
+各自的子模块提供（见第 6 节），值只对 192.168.2.160 现场有效。
 详见[配置参考](reference/config.md)、[子模块配置](reference/submodule-config.md)
 和[架构说明](index.md)；安装、相机与排障见 [docs/](index.md)。
 
@@ -179,7 +180,7 @@ xcore-sdk-python/Release/linux/xCoreSDK_python.cpython-311-x86_64-linux-gnu.so
 ```
 
 它适用于本指南的 Linux x86_64、CPython 3.11。其他架构或解释器需匹配库。
-现场标定文件仍不纳入 Git，首次使用按第 6 节生成。
+标定文件已随 SDK 子模块提供，内容是 192.168.2.160 的现场标定；换机械臂按第 6 节重新生成。
 
 ## 3. 配置有线通信
 
@@ -403,7 +404,7 @@ exit
 
 ## 6. 首次标定：建立主臂与从臂的对应关系
 
-新 clone 没有 `xcore-sdk-python/config/cr7_calib.json`，需生成一次。
+clone 已带 `xcore-sdk-python/config/cr7_calib.json`（192.168.2.160 现场值）；换机械臂需生成一次。
 已有本套硬件的有效现场标定时可恢复该文件并跳过本节；不能套用其他装配的偏移。
 
 将 **GELLO 六轴摆到与 CR7 六轴 `[0°, 0°, 0°, 0°, 0°, 0°]` 对应的标准姿态**，保持不动。
@@ -575,7 +576,7 @@ export XCORE_GELLO_PORT=/dev/serial/by-id/usb-FTDI_USB__-__Serial_Converter_FTB4
 | `pyenv: python: command not found` | `pyenv versions` 确认已装 3.11.16，执行 `pyenv global 3.11.16`，重新打开终端 |
 | 找不到 SDK 扩展 | 初始化并更新 SDK 子模块；检查第 2 节的 `.so` 存在，解释器是 3.11，架构是 x86_64，再运行 `doctor` |
 | GELLO 串口不存在／无权限 | 检查 `by-id` 和 `XCORE_GELLO_PORT`；加入 `dialout` 后重新登录 |
-| 缺少标定 | 执行第 6 节；正常 clone 不带现场 `cr7_calib.json` |
+| 缺少标定 | clone 自带 192.168.2.160 的标定；换机械臂执行第 6 节重新生成 |
 | 只预览、不运动 | 命令必须有 `--enable-motion`，并输入 `y`；裸 `.sh` 是 dry-run |
 | `Connection refused`（夹爪） | 服务需运行在 RS485 所在电脑；检查 `.225:5005`，不能将 `0.0.0.0` 当远端地址 |
 | SSH 登录失败 | 手工 `ssh rokae@192.168.2.225` 核对地址、用户、主机指纹和密钥；配置 `ssh-copy-id`，有口令时 `ssh-add` |

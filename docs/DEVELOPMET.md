@@ -36,7 +36,8 @@ cd xcore-controller
 `pyenv install -s 3.12.14`）。转换器使用独立 Python 3.12，安装锁定的 CPU 数据集依赖。
 SDK 与夹爪使用各自的 `uv.lock`；GELLO 保留原有 `requirements.txt` 安装方式。
 SDK 子模块已包含本项目使用的 Linux x86_64、CPython 3.11 二进制；其他平台按 [SDK 安装说明](../xcore-sdk-python/docs/README.md) 获取匹配库。
-本机使用 CPython 3.11 对应的 Linux 扩展；Linux x86_64、CPython 3.11 的 SDK 0.7.1 二进制已纳入 Git；现场标定文件不纳入 Git。
+本机使用 CPython 3.11 对应的 Linux 扩展；Linux x86_64、CPython 3.11 的 SDK 0.7.1 二进制已纳入 Git；现场标定
+（`config/cr7_calib.json`）也已纳入 SDK 仓库，但只对 192.168.2.160 有效。
 `scripts/setup.sh` 不访问串口或连接机械臂。
 
 | 项目 | Python 包 | 主命令 |
@@ -93,7 +94,7 @@ cd /home/knight/projects/xcore/xcore-controller
 
 ### 新电脑或首次零位标定
 
-现场标定文件不纳入 Git。缺少标定时，将 **GELLO 六轴摆到对应 CR7 六轴均为
+标定文件随 SDK 仓库提供（192.168.2.160 现场值）。换机械臂或缺少标定时，将 **GELLO 六轴摆到对应 CR7 六轴均为
 0° 的标准零位**，保持不动，再执行：
 
 ```bash
