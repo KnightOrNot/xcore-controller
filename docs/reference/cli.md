@@ -25,7 +25,10 @@
 远端数采入口默认自动准备服务；`--check-only` 只启动并检查，不激活、不对齐、不 arm。
 `--no-auto-start` 用于已有全部服务的手动调试。`--no-prepare` 跳过 NRT 对齐，arm 仍检查门限。
 `--web` 不进入终端 R/S/D 流程：页面通过同一远端 API 执行，长操作在后台任务中运行；
-`--web-port` 覆盖 `[web].port`。运动按钮另需服务端一次性确认令牌。
+`--web-port` 覆盖 `[web].port`。加 `--enable-motion` 时脚本在一次确认后先激活夹爪、
+prepare、arm 并创建会话，再打开页面；页面按钮另需服务端一次性令牌。
+`--keep-services` 退出时保留远端服务；默认会停止 controller／相机／夹爪／LeLab，
+并在停止前等待后台转换完成。关闭/刷新网页由页面心跳与 `/api/leave` 管理。
 一次现场 `y` 确认涵盖夹爪按需激活、对齐与跟随。Q 会结束本次自建的本地后台连接，
 远端服务仍按需待命，供后台转换和下次使用。
 
@@ -76,7 +79,8 @@ R 开始、S 保存、D 丢弃、P 状态、H 帮助。未保存片段保留 `.p
 
 本地 loopback，仅用于页面自身：`GET /api/state`、`POST /api/confirmation`、
 `POST /api/action/{start|stop|record-start|record-save|record-discard|finish}`。
-POST 要求同源 JSON；`start`／`finish` 需要一次性 `token`。页面刷新/关闭不会触发操作。
+POST 要求同源 JSON；`start`／`finish` 需要一次性 `token`。页面每 2 秒发送
+`POST /api/heartbeat`；`pagehide` 时发送 `/api/leave`，宽限期后执行远端完全关闭。
 
 ## 数据拉取
 

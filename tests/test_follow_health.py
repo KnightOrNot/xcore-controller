@@ -120,7 +120,7 @@ def test_launcher_detects_background_failure_without_keyboard_input(tmp_path):
         assert process.returncode == 1, output + errors
         assert "injected RT failure" in errors
         commands = calls.read_text().splitlines()
-        assert "stop" in commands and "session/stop" in commands
+        assert "stop" in commands and "shutdown" in commands
         assert "exit" not in commands  # No automatic return on a follow fault.
     finally:
         if process.poll() is None:

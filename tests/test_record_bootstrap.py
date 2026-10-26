@@ -42,6 +42,16 @@ if args[0]=='serve':
     while True: time.sleep(1)
 if args[0] in ('bridge','watch-motion'):
     while True: time.sleep(1)
+if args[0]=='status':
+    if (root/'session').exists():
+        print(json.dumps({'motion':{'state':'following','armed':True},'recording':{'session':'s1','active_episode':None},'conversion':{'last':{'state':'ready'}}}))
+    else:
+        print(json.dumps({'motion':{'state':'idle','armed':False},'recording':{'session':None,'active_episode':None}}))
+    sys.exit(0)
+if args[0]=='command' and args[2]=='session/start':
+    (root/'session').write_text('1')
+if args[0]=='command' and args[2]=='shutdown':
+    (root/'session').unlink(missing_ok=True)
 if args[0]=='command' and args[2]=='episode/save':
     time.sleep(float(os.environ.get('TEST_SAVE_DELAY','0')))
     print(json.dumps({'committed':True, 'rows':420}))
@@ -62,6 +72,14 @@ print(json.dumps({'ready':True}))
         script = root / "scripts" / name
         script.write_text('#!/bin/sh\nexec "$TEST_BOOT_CLIENT" serve ' + service + "\n")
         script.chmod(0o755)
+    executable(
+        root / "bin/ssh",
+        """import json,os,pathlib,sys
+root=pathlib.Path(os.environ['TEST_BOOT_ROOT'])
+data=json.dumps(['ssh', *sys.argv[1:]])
+with (root/'calls').open('a') as f: f.write(data+'\u005cn')
+""",
+    )
     executable(
         root / "bin/curl",
         """import os,pathlib,sys
@@ -142,8 +160,7 @@ def test_one_confirmation_precedes_activation_prepare_and_arm(launcher):
         "prepare",
         "arm",
         "session/start",
-        "exit",
-        "session/stop",
+        "shutdown",
     ]
 
 

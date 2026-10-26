@@ -259,6 +259,13 @@ class MotionWorker:
     def capture_start(self) -> dict[str, Any]:
         return self._call("capture-start", timeout=10)
 
+    def shutdown(self, mode: str | None = None) -> dict[str, Any]:
+        return self._call(
+            "shutdown",
+            {"mode": mode or self.settings.return_mode},
+            timeout=self.settings.return_timeout_s + 60,
+        )
+
     def pose(self) -> dict[str, Any]:
         return self._call("pose", timeout=10)
 
@@ -580,6 +587,43 @@ class MotionWorker:
                 except Exception:
                     if failure is None:
                         raise
+
+    def _do_shutdown(self, payload: dict[str, Any]) -> dict[str, Any]:
+        mode = payload.get("mode", self.settings.return_mode)
+        if mode not in ("start", "zero", "none"):
+            raise ValueError("return mode must be start, zero or none")
+        result: dict[str, Any] = {
+            "mode": mode,
+            "returned": False,
+            "powered_off": False,
+        }
+        try:
+            result["return"] = self._do_return({"mode": mode})
+            result["returned"] = bool(result["return"].get("returned"))
+        except Exception as exc:  # noqa: BLE001 - still power off below
+            result["return_error"] = f"{type(exc).__name__}: {exc}"
+        try:
+            driver = self._require_driver()
+            self._wait_idle(driver)
+            try:
+                driver.call(
+                    "setMotionControlMode",
+                    driver.sdk.MotionControlMode.NrtCommandMode,
+                )
+            except Exception:
+                pass
+            driver.mode("manual")
+            if driver.call("powerState") == driver.sdk.PowerState.on:
+                driver.power(False)
+            result["powered_off"] = (
+                driver.call("powerState") != driver.sdk.PowerState.on
+            )
+        except Exception as exc:  # noqa: BLE001 - reported to the caller
+            result["power_off_error"] = f"{type(exc).__name__}: {exc}"
+        with self._lock:
+            self._armed = False
+            self._state = "idle" if self._driver is not None else self._state
+        return result
 
     # ------------------------------------------------------------------ helpers
     def _init_kinematics(self, driver: Any) -> None:

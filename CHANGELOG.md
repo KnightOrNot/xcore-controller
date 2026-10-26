@@ -61,6 +61,9 @@
 - LeLab 删除按钮修复：新增受控的已发布 revision 删除接口（仅 READY 目录、本地磁盘，
   拒绝路径穿越／symlink／raw／Hub），删除三个测试版本；网页面板修正主臂帧龄显示
   并补齐丢弃按钮测试。
+- 数采命令完整生命周期：`--enable-motion` 直接激活夹爪/机械臂并创建会话（含 `--web`）；
+  退出、Ctrl+C、关闭网页或故障时丢弃未保存片段、停止会话、按 return_mode 返回、
+  下电并停止远端服务；新增 `--keep-services` 和远端 `/shutdown`，停止前等待转换。
 - 相机子模块升级到 `76d33ac`：同一采集 pipeline 新增无损 RGB／Z16 连续记录，
   有界队列／写盘线程／`COMPLETE.json` 提交标记；真实双机 10 秒各 150 帧零丢帧。
 - 新增 `[robot].return_mode`（`start`/`zero`/`none`），默认 `zero`：

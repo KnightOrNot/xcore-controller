@@ -125,6 +125,27 @@ class RemoteSession:
             if self.motion is None:
                 raise RuntimeError("return motion requires the motion worker")
             return self.motion.return_to(data.get("mode"))
+        elif command == "shutdown":
+            result = {}
+            if self.recorder is not None:
+                status = self.recorder.status()
+                if status.get("active_episode") is not None:
+                    result["episode"] = self.recorder.discard_episode(
+                        "controller shutdown"
+                    )
+                if status.get("session"):
+                    session_dir = status.get("session_dir")
+                    stopped = self.recorder.stop_session()
+                    result["session"] = stopped
+                    if (
+                        session_dir
+                        and self.conversion is not None
+                        and stopped.get("committed_episodes", 0)
+                    ):
+                        result["conversion"] = self.conversion.submit(session_dir)
+            if self.motion is not None:
+                result["motion"] = self.motion.shutdown(data.get("mode"))
+            return result
         elif command == "stop":
             if self.motion is not None:
                 self.motion.disarm()

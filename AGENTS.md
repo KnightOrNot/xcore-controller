@@ -1108,9 +1108,10 @@ dataset `943119e`。父仓库已更新两个 submodule 指针；其余子模块�
   需要前端勾选 + 服务端一次性确认令牌（`[web].confirmation_ttl_s`，默认 90 秒）；
   start 还检查远端未 armed、无活动 session、无 cleanup/fk 错误、GELLO 样本新鲜、
   两台相机 streaming 且帧龄正常。夹爪激活由 web job 通过既有 session_setup 执行。
-- 刷新/关闭页面不触发任何操作；数采入口被 SIGTERM 时先终止 web 子进程（其 shutdown
-  只发送 `stop` 释放跟随，不回零、不保存、不丢弃）。网页与 CLI 共用
-  `logs/.remote-record.lock` 和远端会话互斥。
+- 刷新页面会在心跳宽限内重新连接并取消关闭；关闭页面/浏览器崩溃经过宽限后执行
+  **完全关闭**（丢弃未保存片段、停止会话、按 return_mode 返回、下电、停服务）。
+  这是 2026-10-26 用户后续明确要求，取代早期“关闭页面不影响硬件”的设想。
+  网页与 CLI 共用 `logs/.remote-record.lock` 和远端会话互斥。
 - 实测（无运动）：本地 GELLO 服务＋既有远端 hardware 角色＋临时 SSH 隧道，
   `start_remote_record.sh --no-auto-start --web` 成功启动面板；`/api/state` 显示
   `motion=idle`、`allow_motion=false`、两台相机 streaming；只读 start 被 409 拒绝，
@@ -1202,3 +1203,27 @@ dataset `943119e`。父仓库已更新两个 submodule 指针；其余子模块�
   remote 顶层，现改为 `S.remote.leader_age_s`）。真实 arm 相关按钮仍需现场确认后
   验收；只读/HTTP 层与离线状态机测试通过。
 - 验证：dataset 19 项（含 9 项删除测试）、controller 109 项、web 8 项通过。
+
+### 完整生命周期：一条命令激活并关闭所有远端部件（2026-10-26）
+
+- 用户要求：远端全部停止时，执行一条数采命令即激活夹爪与机械臂并开始数采；
+  Q／Ctrl+C／关闭网页时自动关闭所有已激活部件。
+- `--enable-motion` 在终端模式仍先有一次 `y` 确认，然后激活夹爪、prepare、arm、
+  session/start；`--web --enable-motion` 现在也会在打开页面前完成同一套激活和会话创建
+  （页面直接进入可记录状态），不再要求先点页面“启动跟随”。
+- 新增远端 `/shutdown`：丢弃活动 episode（未封存）、停止会话并排队转换、
+  disarm、按 `return_mode` 返回、机械臂 manual＋下电；返回或下电失败会分别报告。
+  故障退出使用 `shutdown --return-mode none`：停止并下电，但不自动返回。
+- 脚本退出统一调用 `/shutdown`，然后停止本次启动的远端 hardware／相机／
+  dataset／夹爪 unit；`--keep-services` 保留服务，`--check-only` 不停止。
+  停止服务前会等待后台转换结束（`timeouts.conversion_wait_s`，默认 600s）；
+  超时则保留 controller/dataset 以免中断转换。
+- 网页新增心跳与关闭检测：每 2 秒 `POST /api/heartbeat`；`pagehide` 用
+  `sendBeacon('/api/leave')`；`[web].close_grace_s`（8s）后执行完全关闭。
+  刷新页面若在宽限内恢复心跳则取消；浏览器崩溃由 `heartbeat_timeout_s`（120s）兜底。
+  关闭网页现在会下电并停止远端服务，这与早期“关闭页面不影响硬件”的约定不同，
+  是用户本轮明确要求；`--keep-services` 可在调试时保留服务。
+- 离线验证：controller 113 项通过，新增 shutdown 返回/下电、心跳/leave、
+  shutdown 会话转换排队、shell 故障 shutdown 和生命周期测试；JS/Ruff/脚本语法通过。
+  **真机上的返回、下电、关闭网页和停服务尚未验收**，首次现场测试需确认急停可达、
+  返回路径安全、下电后抱闸保持正常；不要把离线通过当作硬件验收。

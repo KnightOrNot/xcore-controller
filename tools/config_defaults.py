@@ -63,6 +63,8 @@ SECTIONS = {
         "host": "XCORE_WEB_HOST",
         "port": "XCORE_WEB_PORT",
         "confirmation_ttl_s": "XCORE_WEB_CONFIRMATION_TTL_S",
+        "close_grace_s": "XCORE_WEB_CLOSE_GRACE_S",
+        "heartbeat_timeout_s": "XCORE_WEB_HEARTBEAT_TIMEOUT_S",
         "refresh_hz": "XCORE_WEB_REFRESH_HZ",
     },
     "paths": {
@@ -75,6 +77,7 @@ SECTIONS = {
     "timeouts": {
         "ssh_connect_s": "XCORE_SSH_CONNECT_TIMEOUT",
         "gripper_ready_s": "XCORE_GRIPPER_READY_TIMEOUT",
+        "conversion_wait_s": "XCORE_CONVERSION_WAIT_TIMEOUT",
         "startup_ready_s": "XCORE_STARTUP_READY_TIMEOUT",
     },
     "roles": {
@@ -198,6 +201,8 @@ def _builtin(section: str, key: str) -> Any:
         ("web", "host"): "127.0.0.1",
         ("web", "port"): 8095,
         ("web", "confirmation_ttl_s"): 90,
+        ("web", "close_grace_s"): 8,
+        ("web", "heartbeat_timeout_s"): 120,
         ("web", "refresh_hz"): 2,
         ("paths", "sdk_project"): "xcore-sdk-python",
         ("paths", "gello_project"): "xcore-gello-software",
@@ -206,6 +211,7 @@ def _builtin(section: str, key: str) -> Any:
         ("paths", "camera_project"): "camera-realsense-d435i",
         ("timeouts", "ssh_connect_s"): 5,
         ("timeouts", "gripper_ready_s"): 15,
+        ("timeouts", "conversion_wait_s"): 600,
         ("timeouts", "startup_ready_s"): 30.0,
         ("roles", "bind_host"): "127.0.0.1",
         ("roles", "gello_port"): 9011,
@@ -236,11 +242,14 @@ def validate(values: Values) -> None:
         ("robot", "remote_stale_timeout_s"),
         ("robot", "arm_timeout_s"),
         ("timeouts", "gripper_ready_s"),
+        ("timeouts", "conversion_wait_s"),
         ("timeouts", "startup_ready_s"),
         ("roles", "leader_timeout_s"),
         ("recording", "raw_fps"),
         ("recording", "camera_max_frame_age_s"),
         ("web", "confirmation_ttl_s"),
+        ("web", "close_grace_s"),
+        ("web", "heartbeat_timeout_s"),
         ("web", "refresh_hz"),
     }
     for section, keys in SECTIONS.items():
@@ -295,6 +304,10 @@ def validate(values: Values) -> None:
         raise ValueError("web.refresh_hz must be in 0.5..10")
     if not 5 <= values.get("web.confirmation_ttl_s") <= 600:
         raise ValueError("web.confirmation_ttl_s must be in 5..600")
+    if not 2 <= values.get("web.close_grace_s") <= 60:
+        raise ValueError("web.close_grace_s must be in 2..60")
+    if not 30 <= values.get("web.heartbeat_timeout_s") <= 600:
+        raise ValueError("web.heartbeat_timeout_s must be in 30..600")
     if not 1 <= values.get("roles.leader_poll_hz") <= 100:
         raise ValueError("leader_poll_hz must be in 1..100")
     if not 1 <= values.get("roles.status_poll_hz") <= 10:

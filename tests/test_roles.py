@@ -101,3 +101,36 @@ def test_leader_packets_continue_during_a_slow_save(endpoint):
         release.set()
         save.join(3)
     assert results == [{"committed": True}]
+
+
+def test_shutdown_route_discards_saves_and_queues_conversion():
+    class Recorder:
+        def status(self):
+            return {
+                "session": "s1",
+                "session_dir": "/tmp/session",
+                "active_episode": 0,
+            }
+
+        def discard_episode(self, reason):
+            return {"discarded": True, "reason": reason}
+
+        def stop_session(self):
+            return {"committed_episodes": 1}
+
+    class Motion:
+        def shutdown(self, mode):
+            return {"returned": True, "powered_off": True, "mode": mode}
+
+    class Conversion:
+        def submit(self, session_dir):
+            return {"scheduled": True, "session": session_dir}
+
+    state = RemoteSession(1.0, simulated=False)
+    state.attach_recorder(Recorder())
+    state.attach_motion(Motion())
+    state.attach_conversion(Conversion())
+    result = state.call("shutdown", {"mode": "zero"})
+    assert result["episode"]["discarded"] is True
+    assert result["conversion"]["scheduled"] is True
+    assert result["motion"]["powered_off"] is True

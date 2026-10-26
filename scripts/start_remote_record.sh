@@ -11,6 +11,7 @@ auto_start=true
 check_only=false
 web=false
 web_port=""
+keep_services=false
 while (($#)); do
     case "$1" in
         --task) task="${2:?missing task}"; shift 2 ;;
@@ -20,6 +21,7 @@ while (($#)); do
         --check-only) check_only=true; shift ;;
         --web) web=true; shift ;;
         --web-port) web_port="${2:?missing port}"; shift 2 ;;
+        --keep-services) keep_services=true; shift ;;
         -h|--help)
             cat <<'EOF'
 用法: scripts/start_remote_record.sh --task "任务" --enable-motion [--no-prepare]
@@ -31,6 +33,9 @@ while (($#)); do
 --no-auto-start  使用已手动启动的服务，不自动启动整套环境
 --web            启动本地数采网页，不进入终端 R/S/D 流程
 --web-port N     覆盖 config/default.toml 的 [web].port
+--keep-services  退出时保留远端服务（默认自动停止本次启动的服务）
+                    命令退出（Q/Ctrl+C/关闭网页）会丢弃未保存片段、按 return_mode
+                    返回、下电，并停止远端 controller/相机/夹爪/LeLab 服务。
 
 按键：R 开始 episode，S 保存，D 丢弃，P 状态，Q 退出。
 --enable-motion 经一次现场确认后，必要时激活夹爪，再对齐（prepare）和 arm；
@@ -103,29 +108,57 @@ cleanup() {
         kill "$watch_pid" 2>/dev/null
         wait "$watch_pid" 2>/dev/null
     fi
-    if [[ "$episode_active" == true ]]; then
-        echo "退出：当前 episode 未保存，按丢弃处理。"
-        if ! remote_call episode/discard --reason "script exit" >/dev/null; then
-            exit_status=1
-        fi
-    fi
-    if [[ "$armed" == true ]]; then
-        echo "退出处理（返回模式 $XCORE_RETURN_MODE）。"
-        if remote_call exit --return-mode "$XCORE_RETURN_MODE" >/dev/null; then
-            echo "远端退出处理完成。"
-        else
-            echo "退出返回失败：请先查看远端状态和控制器日志，勿重复发送运动命令。" >&2
-            exit_status=1
-        fi
-    fi
-    if [[ "$session_started" == true ]]; then
-        if ! remote_call session/stop >/dev/null; then
-            exit_status=1
-        fi
-    fi
     if [[ -n "$web_pid" ]]; then
         kill "$web_pid" 2>/dev/null
         wait "$web_pid" 2>/dev/null
+    fi
+    if curl -fsS --max-time 2 "$controller_url/status" >/dev/null 2>&1; then
+        status_json="$(run status "$controller_url" 2>/dev/null || true)"
+        needs_shutdown="$(printf '%s' "$status_json" | "$root_dir/.venv/bin/python" -c '
+import json, sys
+try:
+    d = json.load(sys.stdin)
+except Exception:
+    print(0); raise SystemExit
+m = d.get("motion") or {}
+r = d.get("recording") or {}
+needs = (
+    m.get("armed")
+    or m.get("state") in ("arming", "following", "stopped")
+    or r.get("session")
+    or r.get("active_episode") is not None
+)
+print(1 if needs else 0)
+' 2>/dev/null || echo 0)"
+        if [[ "$needs_shutdown" == 1 ]]; then
+            echo "退出：丢弃未保存片段、按 $XCORE_RETURN_MODE 返回、下电并关闭会话。"
+            if ! remote_call shutdown --return-mode "$XCORE_RETURN_MODE" >/dev/null; then
+                echo "远端完全关闭失败：请查看远端状态和控制器日志，勿重复发送运动命令。" >&2
+                exit_status=1
+            fi
+        fi
+        # The web process may already have queued conversion on page close.
+        conversion_state=unknown
+        conversion_wait="${XCORE_CONVERSION_WAIT_TIMEOUT:-600}"
+        deadline=$((SECONDS + conversion_wait))
+        while (( SECONDS < deadline )); do
+            conversion_state="$(run status "$controller_url" 2>/dev/null | "$root_dir/.venv/bin/python" -c '
+import json, sys
+try:
+    d = json.load(sys.stdin)
+except Exception:
+    print("unknown"); raise SystemExit
+last = (d.get("conversion") or {}).get("last") or {}
+print(last.get("state", "none"))
+' 2>/dev/null || echo unknown)"
+            [[ "$conversion_state" == running ]] || break
+            echo "等待后台数据转换完成（$conversion_state）…"
+            sleep 5
+        done
+        if [[ "$conversion_state" == running ]]; then
+            echo "转换仍在进行；为避免中断，保留 controller 与 dataset 服务。" >&2
+            keep_services=true
+        fi
     fi
     if [[ -n "$bridge_pid" ]]; then
         kill "$bridge_pid" 2>/dev/null
@@ -138,6 +171,16 @@ cleanup() {
             wait "$owned_pid" 2>/dev/null
         fi
     done
+    if [[ "$auto_start" == true && "$keep_services" != true && "$check_only" != true ]]; then
+        echo "停止远端 controller／相机／夹爪／LeLab 服务。"
+        ssh -T -o BatchMode=yes -o ConnectTimeout="${XCORE_SSH_CONNECT_TIMEOUT:-5}" \
+            "$XCORE_CAMERA_SSH_TARGET" \
+            'systemctl --user stop xcore-controller-hardware.service xcore-controller-readonly.service xcore-controller-simulate.service camera-realsense-d435i@cam1.service camera-realsense-d435i@cam2.service xcore-dataset.service xcore-gripper-follow.service' \
+            >/dev/null 2>&1 || {
+            echo "部分远端服务未能停止，请检查 SSH 或手动运行 stop_* 脚本。" >&2
+            exit_status=1
+        }
+    fi
     exit "$exit_status"
 }
 trap cleanup EXIT
@@ -217,6 +260,27 @@ if [[ "$web" == true ]]; then
     )
     [[ "$enable_motion" == true ]] && web_args+=(--allow-motion)
     [[ -z "$web_port" ]] || web_args+=(--port "$web_port")
+    if [[ "$enable_motion" == true ]]; then
+        echo "即将激活夹爪、对齐（prepare）、arm 并创建数采会话。"
+        echo "请保持 GELLO 静止，确认 CR7 运动路径及夹爪周围安全。"
+        read -r -p "输入 y 继续: " answer
+        if [[ "$answer" != y && "$answer" != Y ]]; then
+            echo "已取消（未运动）。"
+            exit 1
+        fi
+        if [[ "$XCORE_FOLLOW_GRIPPER" == true ]]; then
+            run setup-session gripper --activate | json
+        fi
+        if [[ "$prepare" == true ]]; then
+            echo "正在对齐（prepare），可能需要数分钟；此终端会等待。"
+            remote_call prepare | json
+        fi
+        remote_call arm | json
+        armed=true
+        remote_call session/start --task "$task" | json >/dev/null
+        session_started=true
+        echo "夹爪与机械臂已激活，会话已创建：$task"
+    fi
     echo "网页数采模式：运动$([[ "$enable_motion" == true ]] && echo 已授权 || echo 未授权)。"
     if [[ -x "$root_dir/.venv/bin/xcore-controller" ]]; then
         "$root_dir/.venv/bin/xcore-controller" "${web_args[@]}" &
@@ -267,6 +331,7 @@ while true; do
         echo "跟随已异常停止或数据桥退出；本次退出不自动返回，请查看上方故障原因。" >&2
         armed=false
         remote_call stop >/dev/null || true
+        remote_call shutdown --return-mode none >/dev/null || true
         exit 1
     fi
     if [[ -n "$pending_key" ]]; then

@@ -61,6 +61,10 @@ host = "127.0.0.1"
 port = 8095
 # 运动确认令牌有效期；prepare/arm/结束返回都需要服务端一次性令牌。
 confirmation_ttl_s = 90
+# 关闭/刷新页面后等待关闭的秒数；刷新会在宽限内重新心跳并取消关闭。
+close_grace_s = 8
+# 页面心跳丢失多久后也执行关闭（防止浏览器崩溃）。
+heartbeat_timeout_s = 120
 # 页面状态轮询频率。
 refresh_hz = 2
 
@@ -77,6 +81,8 @@ ssh_connect_s = 5
 gripper_ready_s = 15
 # 单个服务启动及反馈就绪的等待上限；缺少部署/硬件时明确超时，不进入运动。
 startup_ready_s = 30.0
+# 退出时等待后台 LeRobot 转换完成再停止 controller/dataset 服务（秒）。
+conversion_wait_s = 600
 
 [roles]
 bind_host = "127.0.0.1"

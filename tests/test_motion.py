@@ -414,3 +414,14 @@ def test_return_waits_for_rt_shutdown_to_reach_idle(tmp_path):
     assert result["returned"] is True
     assert slow.moves[-1][0] == [0.0] * 6
     worker.close()
+
+
+def test_shutdown_returns_then_powers_off(tmp_path):
+    worker, inbox, driver = make_worker(tmp_path, return_mode="zero")
+    driver.values = [0.2] * 6
+    result = worker.shutdown("zero")
+    assert result["returned"] is True
+    assert result["powered_off"] is True
+    assert driver.moves[-1][0] == [0.0] * 6
+    assert driver.power_value.name == "off"
+    worker.close()

@@ -42,6 +42,8 @@ class WebSettings:
     confirmation_ttl_s: float = 90.0
     refresh_hz: float = 2.0
     leader_max_age_s: float = 5.0
+    close_grace_s: float = 8.0
+    heartbeat_timeout_s: float = 120.0
 
     def validate(self) -> None:
         if self.host != "127.0.0.1":
@@ -54,6 +56,10 @@ class WebSettings:
             raise ValueError("invalid refresh rate")
         if not 5 <= self.confirmation_ttl_s <= 600:
             raise ValueError("invalid confirmation lifetime")
+        if not 2 <= self.close_grace_s <= 60:
+            raise ValueError("invalid close grace period")
+        if not 30 <= self.heartbeat_timeout_s <= 600:
+            raise ValueError("invalid heartbeat timeout")
         if not self.task.strip():
             raise ValueError("task must not be empty")
         for url in (self.controller_url, self.cam1_url, self.cam2_url):
@@ -147,6 +153,9 @@ class WebControl:
         self._tokens: dict[str, float] = {}
         self._job: dict | None = None
         self._thread: threading.Thread | None = None
+        self._last_heartbeat: float | None = None
+        self._leave_deadline: float | None = None
+        self._shutdown_done = False
         self._executor = ThreadPoolExecutor(
             max_workers=2, thread_name_prefix="web-state"
         )
@@ -191,6 +200,38 @@ class WebControl:
             token = secrets.token_urlsafe(24)
             self._tokens[token] = now + self.settings.confirmation_ttl_s
         return {"token": token, "expires_in_s": self.settings.confirmation_ttl_s}
+
+    # ---------------------------------------------------------------- lifecycle
+    def heartbeat(self) -> dict:
+        now = time.monotonic()
+        with self._lock:
+            self._last_heartbeat = now
+            self._leave_deadline = None
+        return {"ok": True}
+
+    def leave(self, payload: dict | None = None) -> dict:
+        now = time.monotonic()
+        with self._lock:
+            if self._last_heartbeat is None:
+                return {"scheduled": False, "reason": "no active page"}
+            self._leave_deadline = now + self.settings.close_grace_s
+        return {
+            "scheduled": True,
+            "reason": "page closed",
+            "grace_s": self.settings.close_grace_s,
+        }
+
+    def should_shutdown(self, now: float | None = None) -> str | None:
+        now = time.monotonic() if now is None else now
+        with self._lock:
+            if self._leave_deadline is not None and now >= self._leave_deadline:
+                return "browser page closed"
+            if (
+                self._last_heartbeat is not None
+                and now - self._last_heartbeat > self.settings.heartbeat_timeout_s
+            ):
+                return "browser heartbeat lost"
+        return None
 
     def _consume(self, token: Any) -> None:
         now = time.monotonic()
@@ -370,20 +411,20 @@ class WebControl:
 
     # ---------------------------------------------------------------- shutdown
     def shutdown(self) -> None:
-        """Stop following on process exit; never save, discard, or return."""
+        """Full remote shutdown: discard active episode, stop session, return, power off."""
+        with self._lock:
+            if self._shutdown_done:
+                return
+            self._shutdown_done = True
         try:
-            state = self.remote.state()
-        except Exception:
-            return
-        motion = state.get("motion") or {}
-        if motion.get("armed"):
+            result = self.remote.call("shutdown", {"mode": self.settings.return_mode})
+            self.log(f"[web] remote shutdown: {result}")
+        except Exception as exc:  # noqa: BLE001 - best effort on exit
+            self.log(f"[web] shutdown failed: {exc}")
             try:
                 self.remote.call("stop")
-                self.log("[web] following stopped; no automatic return was sent")
-            except Exception as exc:  # noqa: BLE001
-                self.log(f"[web] stop on shutdown failed: {exc}")
-        if (state.get("recording") or {}).get("active_episode") is not None:
-            self.log("[web] active episode left uncommitted; use CLI/dataset tools")
+            except Exception:
+                pass
 
 
 PAGE = """<!doctype html>
@@ -577,6 +618,10 @@ $('focus').onclick=()=>{document.body.classList.toggle('focus');$('focus').textC
 $('maximize').onclick=()=>{if(document.fullscreenElement)document.exitFullscreen();else document.documentElement.requestFullscreen();};
 document.addEventListener('fullscreenchange',()=>{$('maximize').textContent=document.fullscreenElement?'退出全屏':'全屏';});
 document.querySelectorAll('.tile .fs').forEach(btn=>{btn.onclick=()=>{const tile=btn.closest('.tile');if(document.fullscreenElement)document.exitFullscreen();else tile.requestFullscreen();};});
+function heartbeat(){fetch('/api/heartbeat',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'}).catch(()=>{});}
+heartbeat();setInterval(heartbeat,2000);
+function leave(){try{navigator.sendBeacon('/api/leave',new Blob(['{}'],{type:'application/json'}));}catch(e){}}
+window.addEventListener('pagehide',leave);window.addEventListener('beforeunload',leave);
 refresh().then(()=>{if(S&&S.task)$('task').value=S.task;});setInterval(refresh,500);
 </script></body></html>"""
 
@@ -628,14 +673,22 @@ class Handler(BaseHTTPRequestHandler):
         try:
             if not self.same_origin():
                 return self.reply(403, {"error": "cross-origin control denied"})
-            if self.headers.get_content_type() != "application/json":
-                raise WebError("expected application/json")
             length = int(self.headers.get("Content-Length", "0"))
-            if not 0 < length <= 8192:
+            if not 0 <= length <= 8192:
                 raise WebError("invalid payload size")
-            payload = json.loads(self.rfile.read(length))
+            raw = self.rfile.read(length) if length else b"{}"
+            if self.headers.get_content_type() == "application/json":
+                payload = json.loads(raw)
+            elif self.path == "/api/leave":
+                payload = {}
+            else:
+                raise WebError("expected application/json")
             if not isinstance(payload, dict):
                 raise WebError("expected JSON object")
+            if self.path == "/api/heartbeat":
+                return self.reply(200, self.server.control.heartbeat())
+            if self.path == "/api/leave":
+                return self.reply(200, self.server.control.leave(payload))
             if self.path == "/api/confirmation":
                 return self.reply(200, self.server.control.confirm(payload))
             if self.path.startswith("/api/action/"):
@@ -659,7 +712,10 @@ def serve(settings: WebSettings, *, gripper_setup=None) -> None:
     control = WebControl(settings, gripper_setup=gripper_setup)
     server = WebServer((settings.host, settings.port), control)
 
+    stop_event = threading.Event()
+
     def stop(*_args):
+        stop_event.set()
         threading.Thread(target=server.shutdown, daemon=True).start()
 
     signal.signal(signal.SIGTERM, stop)
@@ -669,6 +725,18 @@ def serve(settings: WebSettings, *, gripper_setup=None) -> None:
         f"(motion {'enabled' if settings.allow_motion else 'read-only'})",
         flush=True,
     )
+
+    def watchdog():
+        while not stop_event.wait(1):
+            reason = control.should_shutdown()
+            if reason:
+                print(f"[web] shutting down: {reason}", flush=True)
+                control.shutdown()
+                stop_event.set()
+                server.shutdown()
+                return
+
+    threading.Thread(target=watchdog, name="web-watchdog", daemon=True).start()
     try:
         server.serve_forever(poll_interval=0.2)
     finally:

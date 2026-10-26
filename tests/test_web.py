@@ -61,7 +61,7 @@ class FakeRemote:
             self.recording.update(active_episode=None, state="ready")
         elif action == "exit":
             self.motion.update(armed=False, state="idle")
-        elif action == "stop":
+        elif action in ("stop", "shutdown"):
             self.motion.update(armed=False, state="idle")
         elif action == "session/stop":
             self.recording.update(session=None, state="closed")
@@ -191,11 +191,26 @@ def test_read_only_mode_blocks_motion_but_allows_state():
         control.submit("start", {"task": "x", "token": token(control)})
 
 
-def test_shutdown_stops_follow_without_return():
+def test_shutdown_calls_full_remote_shutdown_once():
     control, remote = make()
     remote.motion.update(armed=True, state="following")
     control.shutdown()
-    assert [call[0] for call in remote.calls] == ["stop"]
+    control.shutdown()
+    assert [call[0] for call in remote.calls] == ["shutdown"]
+    assert remote.calls[0][1] == {"mode": "zero"}
+
+
+def test_page_leave_and_heartbeat_control_shutdown_window():
+    control, _ = make()
+    assert control.should_shutdown() is None
+    control.heartbeat()
+    now = time.monotonic()
+    assert control.should_shutdown(now) is None
+    control.leave({})
+    assert control.should_shutdown(now + 1) is None
+    assert control.should_shutdown(now + control.settings.close_grace_s + 1)
+    control.heartbeat()
+    assert control.should_shutdown(now + control.settings.close_grace_s + 2) is None
 
 
 def test_http_panel_same_origin_and_confirmation():
@@ -236,6 +251,16 @@ def test_http_panel_same_origin_and_confirmation():
         )
         with urllib.request.urlopen(request) as response:
             assert json.load(response)["token"]
+        for path in ("/api/heartbeat", "/api/leave"):
+            request = urllib.request.Request(
+                base + path,
+                data=body,
+                headers={"Content-Type": "application/json"},
+            )
+            with urllib.request.urlopen(request) as response:
+                assert json.load(response)[
+                    "ok" if path.endswith("heartbeat") else "scheduled"
+                ]
     finally:
         server.shutdown()
         thread.join(2)

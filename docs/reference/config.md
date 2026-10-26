@@ -107,12 +107,15 @@ task = "CR7 GELLO teleoperation"
 host = "127.0.0.1"
 port = 8095
 confirmation_ttl_s = 90
+close_grace_s = 8
+heartbeat_timeout_s = 120
 refresh_hz = 2
 ```
 
-`host` 只允许 loopback。`confirmation_ttl_s` 是运动会话一次性令牌的有效期
-（5..600 秒），`refresh_hz` 是页面状态轮询频率（0.5..10）。网页不会另开 SDK、
-GELLO 串口或相机 pipeline。
+`host` 只允许 loopback。`confirmation_ttl_s` 是一次性运动令牌有效期（5..600 秒）；
+`close_grace_s` 是关闭页面后等待重新心跳的宽限（2..60 秒），`heartbeat_timeout_s`
+是浏览器崩溃的兜底（30..600 秒）；`refresh_hz` 是状态轮询频率（0.5..10）。
+网页不会另开 SDK、GELLO 串口或相机 pipeline。
 
 ## paths
 
@@ -134,6 +137,7 @@ camera_project = "camera-realsense-d435i"
 ssh_connect_s = 5
 gripper_ready_s = 15
 startup_ready_s = 30.0
+conversion_wait_s = 600
 ```
 
 分别对应 `XCORE_SSH_CONNECT_TIMEOUT` 和 `XCORE_GRIPPER_READY_TIMEOUT`。

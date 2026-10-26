@@ -14,6 +14,7 @@ COMMAND_TIMEOUTS = {
     "prepare": 900,
     "exit": 900,
     "return": 900,
+    "shutdown": 900,
     "arm": 60,
     "stop": 60,
     "pose": 15,
@@ -120,6 +121,7 @@ def _main(argv=None):
             "prepare",
             "stop",
             "exit",
+            "shutdown",
             "capture-start",
             "pose",
             "session/start",
@@ -169,6 +171,8 @@ def _main(argv=None):
             confirmation_ttl_s=a.confirmation_ttl_s
             or config["web"]["confirmation_ttl_s"],
             refresh_hz=config["web"]["refresh_hz"],
+            close_grace_s=config["web"]["close_grace_s"],
+            heartbeat_timeout_s=config["web"]["heartbeat_timeout_s"],
         )
         gripper_setup = None
         if config["robot"]["follow_gripper"]:
@@ -190,7 +194,7 @@ def _main(argv=None):
             time.sleep(1 / roles["status_poll_hz"])
     if a.command == "command":
         payload = {}
-        if a.action == "exit" and a.return_mode:
+        if a.action in ("exit", "shutdown") and a.return_mode:
             payload["mode"] = a.return_mode
         if a.action == "session/start" and a.task:
             payload["task"] = a.task
