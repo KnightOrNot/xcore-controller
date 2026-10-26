@@ -60,8 +60,18 @@ git -c url."https://github.com/".insteadOf=git@github.com: submodule update --in
 
 ```bash
 ./scripts/setup.sh --check-only
-./xcore-sdk-python/.venv/bin/xcore-sdk-python doctor   # 应返回 hardware_connected: false
+./xcore-sdk-python/.venv/bin/xcore-sdk-python doctor   # 看 result.hardware_connected: false
 ./scripts/start_remote_record.sh --check-only          # 启动并检查全部服务，不激活、不动
+```
+
+`doctor` 的结论在 `result` 里：`result.sdk_version` 应为 `0.7.1`，`result.hardware_connected`
+为 `false`（离线检查不连机械臂）。
+
+`--check-only` **结束时不停它刚启动的服务**，方便接着做第 4 步；想现在收工就把服务停掉：
+
+```bash
+./scripts/stop_remote_controller.sh && ./scripts/stop_camera.sh && \
+  ./scripts/stop_dataset.sh && ./scripts/stop_gripper.sh
 ```
 
 ### 4. 第一次真机
