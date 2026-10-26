@@ -37,10 +37,59 @@ CR7 实时控制、双 D435i 采集、数据封存与转换、LeLab 浏览都在
 
 ### 1. 前提
 
-控制电脑需要 `git`、`pyenv`、`uv`，以及 Python 3.11.16 和 3.12.14。
-远端主机必须**已经完成部署**（见[远端部署](docs/remote-deploy.md)），且本地能用密钥
-免密 `ssh` 登录。现场需要：GELLO 接本地 USB，CR7（`192.168.2.160`）、夹爪和两台
-D435i 接在远端。
+**系统依赖。** 控制电脑需要能联网的 Ubuntu／Debian，先装 `git`、`curl`、SSH 客户端，
+以及编译 Python 和后续 Python 轮子需要的库：
+
+```bash
+sudo apt update
+sudo apt install -y git curl ca-certificates openssh-client build-essential \
+  libssl-dev zlib1g-dev libbz2-dev libreadline-dev libsqlite3-dev \
+  libncurses-dev xz-utils tk-dev libffi-dev liblzma-dev \
+  libgl1 libegl1 libglib2.0-0t64 ffmpeg
+```
+
+这组包名对应 Ubuntu 24.04；22.04 上 `libglib2.0-0t64` 叫 `libglib2.0-0`。
+
+**pyenv。** 用 git 克隆到 `~/.pyenv`，再把初始化写进 `~/.bashrc`：
+
+```bash
+git clone https://github.com/pyenv/pyenv.git "$HOME/.pyenv"
+```
+
+```bash
+cat >> "$HOME/.bashrc" <<'BASHRC'
+export PYENV_ROOT="$HOME/.pyenv"
+export PATH="$PYENV_ROOT/bin:$HOME/.local/bin:$PATH"
+eval "$(pyenv init - bash)"
+BASHRC
+source "$HOME/.bashrc"
+```
+
+**Python 版本。** 控制链路必须是 Python 3.11.16（CR7 的 SDK 扩展是 CPython 3.11 ABI，
+换版本会加载失败），数据转换用 3.12.14：
+
+```bash
+pyenv install -s 3.11.16
+pyenv install -s 3.12.14
+pyenv global 3.11.16
+```
+
+`pyenv install` 是在本机现场编译的，上面那组 `build-essential`、`libssl-dev` 等依赖
+缺一个都会编译失败。
+
+**uv。** 用于创建和同步各子项目的虚拟环境：
+
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
+export PATH="$HOME/.local/bin:$PATH"
+```
+
+装完确认一下：`python --version` 应显示 3.11.16，`uv --version` 应有输出。
+系统自带的 Python 3.12 不用于 CR7 控制。
+
+**远端与现场。** 远端主机必须**已经完成部署**（见[远端部署](docs/remote-deploy.md)），
+且本地能用密钥免密 `ssh` 登录。硬件方面：GELLO 接本地 USB，CR7（`192.168.2.160`）、
+夹爪和两台 D435i 接在远端。
 
 ### 2. 克隆
 
