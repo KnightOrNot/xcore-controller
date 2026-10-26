@@ -93,6 +93,7 @@ SECTIONS = {
         "remote_dataset_python": "XCORE_REMOTE_DATASET_PYTHON",
         "remote_data_root": "XCORE_REMOTE_DATA_ROOT",
         "dataset_port": "XCORE_DATASET_SERVICE_PORT",
+        "dataset_tunnel_port": "XCORE_DATASET_TUNNEL_PORT",
     },
 }
 
@@ -231,6 +232,7 @@ def _builtin(section: str, key: str) -> Any:
         ): "project/xcore-runtime/dataset-venv/bin/python",
         ("roles", "remote_data_root"): "project/xcore-data",
         ("roles", "dataset_port"): 8090,
+        ("roles", "dataset_tunnel_port"): 8091,
     }
     return builtin[(section, key)]
 
@@ -293,9 +295,11 @@ def validate(values: Values) -> None:
         raise ValueError("timeouts.ssh_connect_s must be a positive integer")
     if values.get("roles.bind_host") not in ("127.0.0.1", "::1"):
         raise ValueError("role services must bind loopback; use SSH forwarding")
-    for key in ("gello_port", "controller_port", "dataset_port"):
+    for key in ("gello_port", "controller_port", "dataset_port", "dataset_tunnel_port"):
         if not 1 <= values.get("roles." + key) <= 65535:
             raise ValueError("invalid role service port")
+    if values.get("roles.dataset_port") == values.get("roles.dataset_tunnel_port"):
+        raise ValueError("dataset browser and SSH tunnel ports must differ")
     if values.get("web.host") != "127.0.0.1":
         raise ValueError("web.host must be 127.0.0.1")
     if not 1 <= values.get("web.port") <= 65535:

@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="zh-CN"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>拉取到本地 · Xcore 数据集</title>
+<style>
+body{margin:0;background:#020617;color:#f1f5f9;font:15px system-ui}main{max-width:680px;margin:7vh auto;padding:28px;border:1px solid #334155;border-radius:16px;background:#111827}h1{font-size:24px;margin:0 0 14px}a{color:#7dd3fc}label{display:block;margin-top:18px}select{box-sizing:border-box;width:100%;padding:10px;margin:8px 0 12px;background:#1e293b;color:white;border:1px solid #64748b;border-radius:6px}button:disabled{opacity:.5;cursor:wait!important}#xp-source-error{color:#fca5a5}
+</style>
+<script src="/xcore-pull.js?v=2" defer></script></head>
+<body><main id="xcore-upload-page">
+<h1>数据集拉取到本地</h1><a href="/edit-dataset">返回 LeLab 数据集查看页</a>
+<label for="xp-source">远端数据集版本</label>
+<select id="xp-source" disabled><option value="">正在读取远端数据集…</option></select>
+<p id="xp-source-error" role="alert"></p>
+<section id="xp-pull-content"></section>
+</main></body></html>

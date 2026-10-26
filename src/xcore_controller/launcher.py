@@ -187,6 +187,11 @@ def main(argv=None):
         port = roles["dataset_port"]
         command = "systemctl --user start xcore-dataset.service"
     subprocess.run(ssh + [target, command], check=True)
+    if a.command == "dataset":
+        from .dataset_browser import serve
+
+        serve(root, config, ssh, target)
+        return
     print(
         f"Local endpoint: http://127.0.0.1:{port}; "
         "Ctrl+C closes the tunnel; use the stop script to stop the remote service",

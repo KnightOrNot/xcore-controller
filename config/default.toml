@@ -81,7 +81,7 @@ ssh_connect_s = 5
 gripper_ready_s = 15
 # 单个服务启动及反馈就绪的等待上限；缺少部署/硬件时明确超时，不进入运动。
 startup_ready_s = 30.0
-# 退出时等待后台 LeRobot 转换完成再停止 controller/dataset 服务（秒）。
+# 网页 finish 等待发布、退出等待转换再停止 controller/dataset 服务的上限（秒）。
 conversion_wait_s = 600
 
 [roles]
@@ -97,3 +97,5 @@ remote_python = "project/xcore-runtime/cpython-3.11.16-linux-x86_64-gnu/bin/pyth
 remote_dataset_python = "project/xcore-runtime/dataset-venv/bin/python"
 remote_data_root = "project/xcore-data"
 dataset_port = 8090
+# 本地 LeLab 网关保留 dataset_port；SSH 隧道使用独立 loopback 端口。
+dataset_tunnel_port = 8091

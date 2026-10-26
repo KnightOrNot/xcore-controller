@@ -173,6 +173,7 @@ def _main(argv=None):
             refresh_hz=config["web"]["refresh_hz"],
             close_grace_s=config["web"]["close_grace_s"],
             heartbeat_timeout_s=config["web"]["heartbeat_timeout_s"],
+            conversion_wait_s=config["timeouts"]["conversion_wait_s"],
         )
         gripper_setup = None
         if config["robot"]["follow_gripper"]:

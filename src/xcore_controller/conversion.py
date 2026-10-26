@@ -7,7 +7,9 @@ dataset project's job queue, which survives crashes and never overwrites output.
 
 from __future__ import annotations
 
+import json
 import os
+import re
 import subprocess
 import threading
 import time
@@ -49,6 +51,7 @@ class ConversionScheduler:
                 "started": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
                 "error": None,
                 "log": None,
+                "verified": False,
             }
             self._thread = threading.Thread(
                 target=self._run, args=(session,), name="conversion", daemon=True
@@ -77,8 +80,15 @@ class ConversionScheduler:
                     env=self.env,
                 )
                 stream.write(queued.stdout + queued.stderr)
+                stream.flush()
                 if queued.returncode:
                     raise RuntimeError("queueing the session failed")
+                job = json.loads(queued.stdout.strip())["result"]
+                job_id = job["job_id"]
+                if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*", job_id):
+                    raise RuntimeError("invalid conversion job ID")
+                with self._lock:
+                    self._last.update(job_id=job_id, phase="converting")
                 done = subprocess.run(
                     self._command("jobs", "--root", str(self.data_root), "--run"),
                     cwd=self.dataset_root,
@@ -91,6 +101,22 @@ class ConversionScheduler:
                 stream.flush()
                 if done.returncode:
                     raise RuntimeError("conversion job failed")
+                # jobs --run records per-job failures but can still exit 0.
+                # Only this session's durable job and a verified publication
+                # establish completion, never the command exit code alone.
+                job = json.loads(
+                    (self.data_root / "jobs" / f"{job_id}.json").read_text()
+                )
+                if job.get("state") != "ready":
+                    raise RuntimeError(job.get("error") or "dataset was not published")
+                destination = Path(job["destination"])
+                if not destination.resolve().is_relative_to(self.data_root / "lerobot"):
+                    raise RuntimeError("conversion destination escapes published root")
+                with self._lock:
+                    self._last["phase"] = "verifying"
+                from xcore_dataset.integrity import verify
+
+                verify(destination)
         except Exception as exc:  # noqa: BLE001 - reported in status
             with self._lock:
                 if self._last is not None:
@@ -100,6 +126,13 @@ class ConversionScheduler:
         with self._lock:
             if self._last is not None:
                 self._last["state"] = "ready"
+                self._last.update(
+                    verified=True,
+                    phase="ready",
+                    path=str(destination),
+                    dataset_id=job["dataset_id"],
+                    revision=job["revision"],
+                )
                 self._last["finished"] = time.strftime(
                     "%Y-%m-%dT%H:%M:%SZ", time.gmtime()
                 )

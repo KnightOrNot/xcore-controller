@@ -38,7 +38,8 @@ while (($#)); do
                     返回、下电，并停止远端 controller/相机/夹爪/LeLab 服务。
 
 按键：R 开始 episode，S 保存，D 丢弃，P 状态，Q 退出。
---enable-motion 经一次现场确认后，必要时激活夹爪，再对齐（prepare）和 arm；
+网页模式 --enable-motion 只允许网页“启动跟随”按钮执行运动，不会自动对齐或 arm。
+终端模式 --enable-motion 经一次现场确认后，必要时激活夹爪，再 prepare 和 arm；
 不执行该参数时只能查看状态，不能开始记录。
 退出时按 config/default.toml 的 return_mode 返回（none 则不返回）。
 EOF
@@ -220,7 +221,7 @@ if [[ "$auto_start" == true ]]; then
     echo "[4/5] 两台 RGBD 相机与预览连接"
     run setup-session cameras
     echo "[5/5] 数据浏览服务"
-    if ! curl -fsS --max-time 2 "http://127.0.0.1:$XCORE_DATASET_SERVICE_PORT/api/datasets" >/dev/null 2>&1; then
+    if ! curl -fsS --max-time 2 "http://127.0.0.1:$XCORE_DATASET_SERVICE_PORT/api/xcore/pulls" >/dev/null 2>&1; then
         setsid "$root_dir/scripts/start_dataset.sh" \
             >"$session_logs/dataset.log" 2>&1 9>&- &
         dataset_pid=$!
@@ -260,28 +261,8 @@ if [[ "$web" == true ]]; then
     )
     [[ "$enable_motion" == true ]] && web_args+=(--allow-motion)
     [[ -z "$web_port" ]] || web_args+=(--port "$web_port")
-    if [[ "$enable_motion" == true ]]; then
-        echo "即将激活夹爪、对齐（prepare）、arm 并创建数采会话。"
-        echo "请保持 GELLO 静止，确认 CR7 运动路径及夹爪周围安全。"
-        read -r -p "输入 y 继续: " answer
-        if [[ "$answer" != y && "$answer" != Y ]]; then
-            echo "已取消（未运动）。"
-            exit 1
-        fi
-        if [[ "$XCORE_FOLLOW_GRIPPER" == true ]]; then
-            run setup-session gripper --activate | json
-        fi
-        if [[ "$prepare" == true ]]; then
-            echo "正在对齐（prepare），可能需要数分钟；此终端会等待。"
-            remote_call prepare | json
-        fi
-        remote_call arm | json
-        armed=true
-        remote_call session/start --task "$task" | json >/dev/null
-        session_started=true
-        echo "夹爪与机械臂已激活，会话已创建：$task"
-    fi
     echo "网页数采模式：运动$([[ "$enable_motion" == true ]] && echo 已授权 || echo 未授权)。"
+    echo "组件已就绪，尚未进入跟随；请在网页确认安全后点击“启动跟随”。"
     if [[ -x "$root_dir/.venv/bin/xcore-controller" ]]; then
         "$root_dir/.venv/bin/xcore-controller" "${web_args[@]}" &
     else

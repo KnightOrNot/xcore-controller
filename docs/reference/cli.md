@@ -13,6 +13,7 @@
 | `./scripts/start_remote_record.sh --task TEXT --enable-motion` | 一键启动 GELLO／控制器／夹爪／双 RGBD／LeLab 及连接，确认后进入数采 |
 | `./scripts/start_remote_record.sh --web [--enable-motion]` | 启动本地网页数采面板；不加 `--enable-motion` 为只读 |
 | `./scripts/pull_dataset.sh [--pose|--joints] ID REV` | 按表示拉取已发布版本；`--list` 列出发现项 |
+| `./scripts/start_dataset.sh` | LeLab 浏览与本地拉取网关；公共工具栏 Pull 到本地，可选 pose/joints 并显示校验后的本地路径 |
 | `./scripts/start_gripper.sh [选项]` | SSH 按需启动远端夹爪服务；`--status` 只读 |
 | `./scripts/stop_gripper.sh` | 完全停止远端夹爪服务（跟随锁占用时拒绝） |
 | `./scripts/start_camera.sh [preview|connect|start|stop|status|info|snapshot|disconnect]` | 双 D435i 管理 |

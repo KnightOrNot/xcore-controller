@@ -21,6 +21,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 from urllib.parse import urlsplit
 
+from .dataset_browser import browser_entry_url
+
 ACTIONS = ("start", "stop", "record-start", "record-save", "record-discard", "finish")
 
 
@@ -44,6 +46,7 @@ class WebSettings:
     leader_max_age_s: float = 5.0
     close_grace_s: float = 8.0
     heartbeat_timeout_s: float = 120.0
+    conversion_wait_s: float = 600.0
 
     def validate(self) -> None:
         if self.host != "127.0.0.1":
@@ -60,6 +63,8 @@ class WebSettings:
             raise ValueError("invalid close grace period")
         if not 30 <= self.heartbeat_timeout_s <= 600:
             raise ValueError("invalid heartbeat timeout")
+        if self.conversion_wait_s <= 0:
+            raise ValueError("invalid conversion wait timeout")
         if not self.task.strip():
             raise ValueError("task must not be empty")
         for url in (self.controller_url, self.cam1_url, self.cam2_url):
@@ -179,7 +184,7 @@ class WebControl:
             "error": error,
             "remote": remote,
             "cameras": cameras,
-            "dataset_url": self.settings.dataset_url,
+            "dataset_url": browser_entry_url(self.settings.dataset_url),
             "allow_motion": self.settings.allow_motion,
             "return_mode": self.settings.return_mode,
             "task": self.settings.task,
@@ -259,6 +264,9 @@ class WebControl:
                 raise WebError("another action is still running")
         view = self.state()
         state = view["remote"]
+        conversion = (state.get("conversion") or {}).get("last") or {}
+        if action != "stop" and conversion.get("state") in ("queued", "running"):
+            raise WebError("数据集仍在转换、校验和发布，请等待完成后再操作")
         self._precheck(action, state, view["cameras"])
         if action in ("start", "finish"):
             self._consume(payload.get("token"))
@@ -397,7 +405,16 @@ class WebControl:
                         raise WebError("remote is still armed after exit")
                 latest = self.remote.state()
                 if (latest.get("recording") or {}).get("session"):
-                    step("session/stop", lambda: self.remote.call("session/stop"))
+                    stopped = step(
+                        "session/stop", lambda: self.remote.call("session/stop")
+                    )
+                    conversion = stopped.get("conversion") or {}
+                    if conversion.get("scheduled"):
+                        publication = step(
+                            "转换、校验并发布数据集",
+                            lambda: self._wait_for_publication(conversion["session"]),
+                        )
+                        update(publication=publication)
         except Exception as exc:  # noqa: BLE001 - keep the failure visible
             update(
                 state="failed",
@@ -409,6 +426,25 @@ class WebControl:
         update(state="ready", finished=time.time(), steps=steps)
         self.log(f"[web] {action} finished")
 
+    def _wait_for_publication(self, session: str) -> dict:
+        deadline = time.monotonic() + self.settings.conversion_wait_s
+        while True:
+            conversion = (self.remote.state().get("conversion") or {}).get("last") or {}
+            if conversion.get("session") != session:
+                raise WebError("无法确认本次会话的转换状态，请检查远端任务")
+            state = conversion.get("state")
+            if state == "failed":
+                raise WebError(conversion.get("error") or "数据集转换失败，未发布")
+            if state == "ready":
+                if not conversion.get("verified") or not conversion.get("path"):
+                    raise WebError("转换未确认完整性校验和发布成功，不能报告保存完成")
+                return conversion
+            if state not in ("queued", "running"):
+                raise WebError(f"未知转换状态：{state}")
+            if time.monotonic() >= deadline:
+                raise WebError("等待数据发布超时；远端可能仍在处理，完成前操作继续锁定")
+            time.sleep(1 / self.settings.refresh_hz)
+
     # ---------------------------------------------------------------- shutdown
     def shutdown(self) -> None:
         """Full remote shutdown: discard active episode, stop session, return, power off."""
@@ -417,7 +453,21 @@ class WebControl:
                 return
             self._shutdown_done = True
         try:
-            result = self.remote.call("shutdown", {"mode": self.settings.return_mode})
+            # Opening the panel only prepares services. Closing it before Start
+            # must never turn the configured exit pose into a first motion.
+            mode = "none"
+            try:
+                state = self.remote.state()
+                motion = state.get("motion") or {}
+                recording = state.get("recording") or {}
+                if (motion.get("armed") or recording.get("session")) and not any(
+                    motion.get(key)
+                    for key in ("error", "abort_reason", "cleanup_fault")
+                ):
+                    mode = self.settings.return_mode
+            except Exception:
+                pass  # Unknown state permits stop/power-off, never a return move.
+            result = self.remote.call("shutdown", {"mode": mode})
             self.log(f"[web] remote shutdown: {result}")
         except Exception as exc:  # noqa: BLE001 - best effort on exit
             self.log(f"[web] shutdown failed: {exc}")
@@ -550,6 +600,7 @@ function recording(){return (S&&S.remote&&S.remote.recording)||{};}
 function armed(){const m=motion();return !!m.armed&&m.state==='following';}
 function episodeActive(){const e=recording().active_episode;return e!==null&&e!==undefined;}
 function jobRunning(){return !!(S&&S.job&&S.job.state==='running');}
+function conversionRunning(){const c=S&&S.remote&&S.remote.conversion&&S.remote.conversion.last;return !!(c&&['queued','running'].includes(c.state));}
 function setV(id,text,cls){const el=$(id);el.textContent=text==null?'—':String(text);el.className='v'+(cls?' '+cls:'');}
 function setSrc(img,url,tile){
   if(!url)return;
@@ -559,7 +610,7 @@ function setSrc(img,url,tile){
     img.onload=()=>$(tile).classList.remove('offline');}
 }
 function updateButtons(){
-  const allow=S&&S.allow_motion,a=armed(),r=recording(),ep=episodeActive(),busyNow=busy||jobRunning();
+  const allow=S&&S.allow_motion,a=armed(),r=recording(),ep=episodeActive(),busyNow=busy||jobRunning()||conversionRunning()||!S||!S.ok;
   $('b-start').disabled=busyNow||!allow||a||!!r.session;
   $('b-stop').disabled=busyNow||!a;
   $('b-record').disabled=busyNow||!a||ep||!r.session;
@@ -587,7 +638,7 @@ function render(){
   const errors=[m.error,m.abort_reason,m.cleanup_fault,r.error,S.error,conv&&conv.state==='failed'?conv.error:null].filter(Boolean);
   $('error').textContent=errors.length?('错误：'+errors.join(' | ')):'';
   $('error').className='notice'+(errors.length?' bad':'');
-  $('notice').textContent=S.allow_motion?'启动/结束会话需要勾选安全确认；保存期间跟随继续。':'只读模式：未加 --enable-motion，启动跟随已禁用。';
+  $('notice').textContent=(conversionRunning()||(S.job&&S.job.action==='finish'&&jobRunning()))?'正在结束会话、转换并校验发布数据，请等待完成后再操作。':(S.job&&S.job.action==='finish'&&S.job.state==='ready'&&S.job.publication)?'数据集已保存并发布，可以开始下一次采集。':S.allow_motion?'启动/结束会话需要勾选安全确认；保存期间跟随继续。':'只读模式：未加 --enable-motion，启动跟随已禁用。';
   $('lelab').href=S.dataset_url||'#';
   const cams=S.cameras||[];const urls=cams.map(c=>c.url||'');
   setSrc($('c1r'),urls[0]&&urls[0]+'/stream/color.mjpg','t-c1r');

@@ -176,6 +176,71 @@ def test_finish_requires_episode_decision_then_exits_and_stops_session():
     assert remote.motion["armed"] is False
 
 
+@pytest.mark.parametrize("failed", [False, True])
+def test_finish_stays_busy_until_its_conversion_is_published(failed):
+    control, remote = make()
+    remote.motion.update(armed=True, state="following")
+    remote.recording.update(session="session_test", state="ready")
+    entered, release = threading.Event(), threading.Event()
+    original_state, original_call = remote.state, remote.call
+    conversion = {"last": None}
+
+    def call(action, payload=None):
+        result = original_call(action, payload)
+        if action == "session/stop":
+            conversion["last"] = {"session": "/raw/session_test", "state": "running"}
+            result["conversion"] = {"scheduled": True, "session": "/raw/session_test"}
+            entered.set()
+        return result
+
+    def state():
+        if entered.is_set() and release.is_set():
+            conversion["last"].update(
+                state="failed" if failed else "ready",
+                verified=not failed,
+                path="/lerobot/session_test/rev-0001",
+                error="encoder failed" if failed else None,
+            )
+        return {**original_state(), "conversion": conversion}
+
+    remote.call, remote.state = call, state
+    control.submit("finish", {"token": token(control)})
+    assert entered.wait(1)
+    pending = control.state()["job"]
+    assert pending["state"] == "running"
+    with pytest.raises(Exception, match="still running"):
+        control.submit("start", {"token": token(control)})
+    release.set()
+    job = wait_job(control)
+    assert job["state"] == ("failed" if failed else "ready")
+    if failed:
+        assert "encoder failed" in job["error"]
+    else:
+        assert job["publication"]["verified"] is True
+        assert job["publication"]["path"] == "/lerobot/session_test/rev-0001"
+
+
+def test_page_reload_still_blocks_start_during_remote_conversion():
+    control, remote = make()
+    original = remote.state
+    remote.state = lambda: {**original(), "conversion": {"last": {"state": "running"}}}
+    with pytest.raises(Exception, match="发布"):
+        control.submit("start", {"token": token(control)})
+    assert remote.calls == []
+
+
+def test_finish_does_not_accept_unverified_or_other_session_completion():
+    control, remote = make()
+    original = remote.state
+    last = {"session": "/raw/old", "state": "ready", "verified": True, "path": "/old"}
+    remote.state = lambda: {**original(), "conversion": {"last": last}}
+    with pytest.raises(Exception, match="本次会话"):
+        control._wait_for_publication("/raw/new")
+    last.update(session="/raw/new", verified=False)
+    with pytest.raises(Exception, match="完整性"):
+        control._wait_for_publication("/raw/new")
+
+
 def test_read_only_mode_blocks_motion_but_allows_state():
     control = WebControl(
         settings(allow_motion=False),
@@ -198,6 +263,20 @@ def test_shutdown_calls_full_remote_shutdown_once():
     control.shutdown()
     assert [call[0] for call in remote.calls] == ["shutdown"]
     assert remote.calls[0][1] == {"mode": "zero"}
+
+
+def test_closing_panel_before_start_never_requests_return_motion():
+    control, remote = make()
+    assert remote.calls == []
+    control.shutdown()
+    assert remote.calls == [("shutdown", {"mode": "none"})]
+
+
+def test_failed_start_shutdown_never_requests_return_motion():
+    control, remote = make()
+    remote.motion.update(state="stopped", abort_reason="arm failed")
+    control.shutdown()
+    assert remote.calls == [("shutdown", {"mode": "none"})]
 
 
 def test_page_leave_and_heartbeat_control_shutdown_window():

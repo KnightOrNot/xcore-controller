@@ -164,6 +164,18 @@ def test_one_confirmation_precedes_activation_prepare_and_arm(launcher):
     ]
 
 
+@pytest.mark.parametrize("motion", [False, True])
+def test_web_start_prepares_services_without_activation_or_arm(launcher, motion):
+    options = ["--web"] + (["--enable-motion"] if motion else [])
+    result, calls = invoke(launcher, *options, input="")
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert not any("--activate" in c or c[0] == "command" for c in calls)
+    panel = next(c for c in calls if c[0] == "web")
+    assert ("--allow-motion" in panel) is motion
+    assert "输入 y" not in result.stdout
+    assert "尚未进入跟随" in result.stdout
+
+
 def test_cancel_does_not_activate_or_move(launcher):
     result, calls = invoke(launcher, "--enable-motion", input="n\n")
     assert result.returncode == 1

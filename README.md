@@ -45,7 +45,7 @@ adapter 是无设备访问的数据包。新入口环境安装见[首阶段说�
 | `./scripts/start_remote_controller.sh --hardware-read-only` | 启动远端 SDK 只读服务及本地隧道，不支持启用运动 |
 | `./scripts/start_remote_controller.sh --hardware` | 启动可运动的远端 SDK worker；仍需显式 `arm` |
 | `./scripts/stop_remote_controller.sh` | 停止新架构远端只读／模拟／运动服务 |
-| `./scripts/start_dataset.sh` | 启动远端 LeLab 只读浏览及本地隧道 |
+| `./scripts/start_dataset.sh` | 启动远端 LeLab、本地隧道及格式可选的网页拉取入口 |
 | `./scripts/stop_dataset.sh` | 停止远端数据浏览服务 |
 | `./scripts/pull_dataset.sh [--pose\|--joints] ID REVISION` | 拉取对应表示的数据集；`--list` 查看可用版本 |
 
@@ -818,8 +818,9 @@ uv run --project xcore-gripper-2F85 gripper activate --host 192.168.2.225 --port
 
 </details>
 
-`start_remote_record.sh --enable-motion` 在一次 `y` 确认后直接激活夹爪、机械臂并
-创建会话。正常 `Q`、Ctrl+C、关闭网页或故障退出都会：丢弃未保存片段、停止会话、
+终端模式 `start_remote_record.sh --enable-motion` 在一次 `y` 确认后激活夹爪、机械臂并
+创建会话；网页模式只准备组件，点击网页“启动跟随”后才激活、prepare、arm 和创建会话。
+正常 `Q`、Ctrl+C、关闭网页或故障退出都会：丢弃未保存片段、停止会话、
 按 `return_mode` 返回（`none` 不返回）、机械臂下电，并停止本次启动的远端
 controller／相机／夹爪／LeLab 服务；`--keep-services` 可保留服务。
 关闭前会等待后台转换完成（`timeouts.conversion_wait_s`），避免停服务中断转换。
@@ -863,11 +864,17 @@ S 保存会停止该片段的录制、等待图像落盘并封存；主臂数据
 记录/转换状态和两台相机的 RGB、深度实时预览。长操作在一个后台任务中执行，页面轮询
 真实远端状态；重复点击会被拒绝。
 
-加 `--enable-motion` 时，`.sh` 会在打开页面前完成一次现场 `y` 确认，然后直接激活
-夹爪、`prepare`、`arm` 并创建会话；页面只需记录/保存。关闭页面（或浏览器崩溃）
+点击“结束会话”后，面板会等待本次会话在远端完成转换、完整性校验和发布，期间锁定
+采集操作；显示“数据集已保存并发布”后才允许开始下一轮。刷新页面仍会检查远端转换
+状态，命令排队成功不等于数据已保存完成；转换失败会明确显示原因。
+
+网页模式加 `--enable-motion` 只允许网页运动按钮，不会在打开页面前激活夹爪、
+`prepare`、`arm` 或创建会话。确认现场安全后，在网页勾选确认并点击“启动跟随”，
+才执行这些动作。未开始跟随就关闭页面时不执行返回动作。关闭页面（或浏览器崩溃）
 会在 `[web].close_grace_s`／`heartbeat_timeout_s` 后执行同一套完全关闭流程；刷新
 页面会在宽限内重新心跳并取消关闭。网页与 CLI 共用数采入口锁和远端会话互斥。
-初版 LeLab 仍只读浏览，不开放上传、删除、合并、训练或运动接口。
+LeLab 提供浏览、受控删除已发布版本，以及通过独立“Pull 到本地”链接拉取数据；
+不开放 Hugging Face 上传、合并、训练或运动接口。
 
 ## 拉取末端或关节表示（2026-10-26）
 
@@ -884,3 +891,34 @@ S 保存会停止该片段的录制、等待图像落盘并封存；主臂数据
 pose10 版本互相覆盖；`--list` 会显示每个版本的 representation。拉取后先校验
 `representation.json`（旧 EE10 版本按特征维度推断），不匹配时保留 partial 供排查，
 不会发布成正式目录。旧命令 `pull_dataset.sh ID REVISION` 仍按 pose10 完整包行为工作。
+
+### 通过 LeLab 按钮拉取
+
+```bash
+./scripts/start_dataset.sh
+# 浏览器打开 http://127.0.0.1:8090/edit-dataset
+```
+
+选择数据集版本，点击页面最顶部“数据集工具”栏的“Pull 到本地”，会打开统一的 `/upload` 页面，
+并自动选中当前版本。在页面选择 `--pose`（末端 10 维）或 `--joints`
+（关节＋夹爪 7 维，rad）。若当前版本不是所选表示，
+系统会核验其 raw 来源并在远端生成对应格式，再传回本地；缺少关节字段或来源不一致
+会报错，不会做 IK 或改写原数据。按需生成的版本用来源摘要命名，重复选择会复用。
+
+完成 SHA-256 校验及 LeRobot 回读后，页面显示本地绝对路径并可复制，默认位于
+`data/lerobot/<dataset_id>/<revision>/`。本地使用 `.partial` 断点续传，正式版本不覆盖。
+保持 `start_dataset.sh` 进程运行以完成任务；原保存、停止及自动转换行为不变。
+命令行 `pull_dataset.sh --pose/--joints` 仍校验并拉取指定已发布表示；按需切换格式是
+本次新增的网页功能。
+
+浏览地址仍为 8090，已由本地网关提供；内部 SSH 隧道改用 8091（可配置）。升级前若有
+旧的 `start_dataset.sh` 隧道占用 8090，先在旧终端 Ctrl+C，再运行新的入口。
+
+直接打开 `http://127.0.0.1:8090/upload` 也会进入本地拉取页面，可选择远端数据集和
+pose/joints 格式；不会进入原 Hugging Face 上传流程。已有浏览器标签页升级后应完整刷新，
+以加载新的页面脚本。复用本地网关启动数采时会再次确认并按需启动远端数据服务，
+防止上次退出停止远端 LeLab 后，本地仍存活的网关返回 502。浏览期间上游断开时，
+网关也会按需恢复仅数据浏览服务并重试读取；不启动硬件，写操作不会自动重放。
+
+“数据集工具”栏由服务器直接输出，位于 LeLab 的 React 区域之外，从首页选择数据集
+或在内部页面间切换时都会保留。升级后应先完整刷新最初打开的 LeLab 首页一次。

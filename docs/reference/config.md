@@ -147,6 +147,10 @@ conversion_wait_s = 600
 
 ## 自定义实验
 
+LeLab 浏览地址使用 `[roles].dataset_port`（8090），本地内部 SSH 隧道使用
+`[roles].dataset_tunnel_port`（8091，对应 `XCORE_DATASET_TUNNEL_PORT`）；两者不能相同。
+网页拉取目的根目录沿用 `[recording].lerobot_data_root`，相对 controller 根目录解析。
+
 ```bash
 cp config/default.toml config/experiment.toml
 XCORE_CONFIG=config/experiment.toml python3 tools/config_defaults.py --json

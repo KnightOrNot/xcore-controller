@@ -57,6 +57,24 @@ def test_leader_check_rejects_stale_packets(config, monkeypatch):
     assert setup.leader(config)["ready"]
 
 
+def test_reused_dataset_proxy_restarts_stopped_upstream(config, monkeypatch):
+    calls = []
+
+    def invoke(args, **kwargs):
+        calls.append(args)
+        assert args[-1] == "systemctl --user start xcore-dataset.service"
+
+    def read(url):
+        assert calls, "must start the remote unit even when local proxy already exists"
+        assert url.endswith("/api/datasets")
+        return {"datasets": ["session/rev-0001"]}
+
+    monkeypatch.setattr(setup.subprocess, "run", invoke)
+    monkeypatch.setattr(setup, "get", read)
+    assert setup.dataset(config)["ready"] is True
+    assert len(calls) == 1
+
+
 def test_gripper_activation_only_when_explicitly_requested(config, monkeypatch):
     from xcore_sdk_python import gripper_follow
 

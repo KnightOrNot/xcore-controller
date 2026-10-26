@@ -212,12 +212,39 @@ def cameras(config):
 
 
 def dataset(config):
+    from .dataset_browser import browser_entry_url
+
+    # A local browser can outlive collection cleanup, which stops the remote
+    # dataset unit. A healthy proxy process does not prove its upstream is up.
+    target = config["remote"]["camera_ssh_target"]
+    if not re.fullmatch(r"[A-Za-z0-9_.-]+@[A-Za-z0-9.-]+", target):
+        raise ValueError("invalid dataset SSH target")
+    subprocess.run(
+        [
+            "ssh",
+            "-T",
+            "-o",
+            "BatchMode=yes",
+            "-o",
+            "StrictHostKeyChecking=yes",
+            "-o",
+            f"ConnectTimeout={config['timeouts']['ssh_connect_s']}",
+            target,
+            "systemctl --user start xcore-dataset.service",
+        ],
+        check=True,
+        timeout=config["timeouts"]["startup_ready_s"],
+    )
     url = f"http://127.0.0.1:{config['roles']['dataset_port']}"
 
     def read():
         state = get(url + "/api/datasets")
         if not isinstance(state.get("datasets"), list):
             raise RuntimeError("unexpected service on the dataset port")
-        return {"ready": True, "service": "dataset", "url": url + "/edit-dataset"}
+        return {
+            "ready": True,
+            "service": "dataset",
+            "url": browser_entry_url(url + "/edit-dataset"),
+        }
 
     return wait_for(read, config["timeouts"]["startup_ready_s"])
