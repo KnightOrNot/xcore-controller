@@ -388,97 +388,183 @@ class WebControl:
 
 PAGE = """<!doctype html>
 <html lang="zh-CN"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Xcore 数采面板</title>
 <style>
-:root{color-scheme:dark}body{font:14px/1.5 system-ui,sans-serif;margin:0;background:#111;color:#ddd}
-header{padding:12px 18px;background:#1b1b1b;border-bottom:1px solid #333}
-main{display:grid;grid-template-columns:360px 1fr;gap:16px;padding:16px}
-section{background:#1a1a1a;border:1px solid #333;border-radius:8px;padding:14px}
-button{padding:8px 12px;margin:3px;border:1px solid #555;border-radius:6px;background:#2a2a2a;color:#eee}
-button:disabled{opacity:.4}button.danger{border-color:#a33}
-input[type=text]{width:100%;padding:7px;background:#111;border:1px solid #444;color:#eee;border-radius:5px}
-pre{white-space:pre-wrap;word-break:break-word;font-size:12px;color:#bbb}
-.grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
-img{width:100%;background:#000;border-radius:5px}
-.ok{color:#6c6}.bad{color:#e77}.muted{color:#888}
+:root{color-scheme:dark;--bg:#0d1117;--panel:#161b22;--line:#30363d;--muted:#8b949e;--text:#d7dde5;--ok:#3fb950;--warn:#d29922;--bad:#f85149;--accent:#58a6ff}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{display:flex;flex-direction:column;overflow:hidden;background:var(--bg);color:var(--text);font:14px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif}
+header{flex:0 0 52px;display:flex;align-items:center;gap:12px;padding:0 16px;background:var(--panel);border-bottom:1px solid var(--line)}
+header h1{font-size:16px;margin:0;white-space:nowrap}
+header .spacer{flex:1}
+.badge{border:1px solid var(--line);border-radius:999px;padding:2px 9px;font-size:12px;color:var(--muted)}
+.badge.on{color:var(--ok);border-color:#238636}.badge.off{color:var(--warn);border-color:#9e6a03}
+main{flex:1;min-height:0;display:grid;grid-template-columns:370px minmax(0,1fr);gap:12px;padding:12px}
+body.focus main{grid-template-columns:minmax(0,1fr)}
+body.focus aside{display:none}
+aside{min-height:0;overflow:auto;display:flex;flex-direction:column;gap:12px;padding-right:2px}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px;flex:0 0 auto}
+.panel h3{margin:0 0 10px;font-size:13px;font-weight:600;color:#c9d1d9;letter-spacing:.02em}
+label.field{display:block;font-size:12px;color:var(--muted);margin-bottom:5px}
+input[type=text]{width:100%;padding:8px 10px;background:#0d1117;border:1px solid var(--line);border-radius:6px;color:var(--text)}
+.check{display:flex;gap:8px;align-items:flex-start;margin:10px 0;font-size:12px;color:#c9d1d9}
+.buttons{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.buttons .wide{grid-column:1/-1}
+button{padding:9px 12px;border:1px solid var(--line);border-radius:7px;background:#21262d;color:var(--text);cursor:pointer;font-size:13px}
+button:hover:not(:disabled){border-color:#8b949e;background:#30363d}
+button:disabled{opacity:.38;cursor:not-allowed}
+button.primary{border-color:#1f6feb;background:#1f6feb22}button.primary:hover:not(:disabled){background:#1f6feb44}
+button.danger{border-color:#da3633;background:#da363322}
+.notice{font-size:12px;color:var(--muted);margin:8px 0 0}
+.metrics{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.metric{background:#0d1117;border:1px solid var(--line);border-radius:7px;padding:7px 9px;min-width:0}
+.metric .k{font-size:11px;color:var(--muted)}
+.metric .v{font-size:13px;font-weight:600;word-break:break-word;margin-top:1px}
+.v.ok{color:var(--ok)}.v.warn{color:var(--warn)}.v.bad{color:var(--bad)}
+#steps{margin:8px 0 0;padding-left:20px;font-size:12px;color:#c9d1d9}
+#steps li{margin:3px 0}#steps li.running{color:var(--accent)}#steps li.ok{color:var(--ok)}#steps li.failed{color:var(--bad)}
+details{margin-top:10px;font-size:12px;color:var(--muted)}
+details pre{max-height:220px;overflow:auto;background:#0d1117;border:1px solid var(--line);border-radius:6px;padding:8px;font-size:11px}
+.previews{min-height:0;display:flex;flex-direction:column;gap:10px}
+.previews .bar{display:flex;align-items:center;gap:10px;flex:0 0 auto}
+.previews .bar h3{margin:0;font-size:13px}
+.previews .bar .spacer{flex:1}
+.grid{flex:1;min-height:0;display:grid;grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr;gap:10px}
+.tile{position:relative;min-height:0;background:#000;border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.tile .label{position:absolute;top:8px;left:8px;z-index:2;background:#000a;border:1px solid #ffffff18;border-radius:5px;padding:2px 7px;font-size:11px;color:#e6edf3}
+.tile .fs{position:absolute;top:6px;right:6px;z-index:2;padding:4px 8px;font-size:11px;background:#000a}
+.tile img{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;background:#000}
+.tile.offline::after{content:"画面不可用";position:absolute;inset:0;display:grid;place-items:center;color:var(--muted);font-size:13px}
+.tile:fullscreen{border:0;border-radius:0}
+.tile:fullscreen img{object-fit:contain}
+a{color:var(--accent)}
+@media (max-width:1100px){
+  body{overflow:auto}main{grid-template-columns:1fr;min-height:auto}
+  aside{overflow:visible}.previews{min-height:70vh}
+}
 </style></head><body>
-<header><b>Xcore 数采面板</b> <span class="muted">本地 loopback；关闭页面不会停止硬件</span></header>
+<header>
+  <h1>Xcore 数采面板</h1>
+  <span id="mode" class="badge off">只读</span>
+  <span id="followBadge" class="badge off">未跟随</span>
+  <span class="spacer"></span>
+  <a id="lelab" target="_blank" rel="noopener">LeLab 数据浏览</a>
+  <button id="focus" type="button">最大化预览</button>
+  <button id="maximize" type="button">全屏</button>
+</header>
 <main>
-<section>
-<h3>任务</h3>
-<input id="task" type="text" placeholder="pick and place">
-<label><input id="confirm" type="checkbox"> 我已确认 CR7 与夹爪运动范围安全</label>
-<div>
-<button id="b-start">启动跟随</button>
-<button id="b-stop">停止跟随</button>
-</div><div>
-<button id="b-record">开始记录</button>
-<button id="b-save">保存</button>
-<button id="b-discard">丢弃</button>
-</div><div>
-<button id="b-finish" class="danger">结束会话（按 return_mode）</button>
-</div>
-<p id="notice" class="muted"></p>
-<h3>状态</h3>
-<pre id="state">加载中…</pre>
-</section>
-<section>
-<h3>实时预览</h3>
-<div class="grid">
-<div><div class="muted">cam1 RGB</div><img id="c1r"></div>
-<div><div class="muted">cam1 Depth</div><img id="c1d"></div>
-<div><div class="muted">cam2 RGB</div><img id="c2r"></div>
-<div><div class="muted">cam2 Depth</div><img id="c2d"></div>
-</div>
-<p><a id="lelab" target="_blank" rel="noopener">打开 LeLab 数据浏览</a></p>
+<aside>
+  <section class="panel">
+    <h3>任务与会话</h3>
+    <label class="field" for="task">任务描述</label>
+    <input id="task" type="text" placeholder="pick and place">
+    <label class="check"><input id="confirm" type="checkbox"> 我已确认 CR7 与夹爪运动范围安全</label>
+    <div class="buttons">
+      <button id="b-start" class="primary">启动跟随</button>
+      <button id="b-stop">停止跟随</button>
+      <button id="b-record">开始记录</button>
+      <button id="b-save">保存</button>
+      <button id="b-discard">丢弃</button>
+      <button id="b-finish" class="danger wide">结束会话（按 return_mode）</button>
+    </div>
+    <p id="notice" class="notice"></p>
+    <ol id="steps"></ol>
+  </section>
+  <section class="panel">
+    <h3>实时状态</h3>
+    <div class="metrics">
+      <div class="metric"><div class="k">运动状态</div><div id="m-motion" class="v">—</div></div>
+      <div class="metric"><div class="k">主臂帧龄</div><div id="m-leader" class="v">—</div></div>
+      <div class="metric"><div class="k">已转发</div><div id="m-forwarded" class="v">—</div></div>
+      <div class="metric"><div class="k">夹爪闭合</div><div id="m-gripper" class="v">—</div></div>
+      <div class="metric"><div class="k">会话</div><div id="m-session" class="v">—</div></div>
+      <div class="metric"><div class="k">活动片段</div><div id="m-episode" class="v">—</div></div>
+      <div class="metric"><div class="k">已保存片段</div><div id="m-episodes" class="v">—</div></div>
+      <div class="metric"><div class="k">当前行数</div><div id="m-rows" class="v">—</div></div>
+      <div class="metric"><div class="k">记录状态</div><div id="m-record" class="v">—</div></div>
+      <div class="metric"><div class="k">转换</div><div id="m-convert" class="v">—</div></div>
+    </div>
+    <p id="error" class="notice"></p>
+    <details><summary>原始状态 JSON</summary><pre id="raw"></pre></details>
+  </section>
+</aside>
+<section class="previews">
+  <div class="bar"><h3>实时预览</h3><span class="spacer"></span><span class="muted" style="font-size:11px;color:var(--muted)">两台相机各自 RGB／深度；点击画面右上角可单画面全屏</span></div>
+  <div class="grid">
+    <div class="tile" id="t-c1r"><span class="label">cam1 RGB</span><button class="fs" type="button">全屏</button><img id="c1r" alt="cam1 RGB"></div>
+    <div class="tile" id="t-c1d"><span class="label">cam1 深度</span><button class="fs" type="button">全屏</button><img id="c1d" alt="cam1 depth"></div>
+    <div class="tile" id="t-c2r"><span class="label">cam2 RGB</span><button class="fs" type="button">全屏</button><img id="c2r" alt="cam2 RGB"></div>
+    <div class="tile" id="t-c2d"><span class="label">cam2 深度</span><button class="fs" type="button">全屏</button><img id="c2d" alt="cam2 depth"></div>
+  </div>
 </section>
 </main>
 <script>
-let S=null, busy=false;
+let S=null,busy=false;
 const $=id=>document.getElementById(id);
+const esc=v=>String(v==null?'':v).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 function post(path,body){return fetch(path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body||{})}).then(async r=>{const j=await r.json().catch(()=>({error:r.statusText}));if(!r.ok)throw new Error(j.error||('HTTP '+r.status));return j;});}
-function armed(){const m=S&&S.remote&&S.remote.motion||{};return !!m.armed&&m.state==='following';}
+function motion(){return (S&&S.remote&&S.remote.motion)||{};}
 function recording(){return (S&&S.remote&&S.remote.recording)||{};}
-function jobRunning(){return S&&S.job&&S.job.state==='running';}
-function updateButtons(){
-  const allow=S&&S.allow_motion, a=armed(), r=recording(), ep=r.active_episode!==null&&r.active_episode!==undefined;
-  $('b-start').disabled=busy||jobRunning()||!allow||a||!!r.session;
-  $('b-stop').disabled=busy||jobRunning()||!a;
-  $('b-record').disabled=busy||jobRunning()||!a||ep||!r.session;
-  $('b-save').disabled=busy||jobRunning()||!ep;
-  $('b-discard').disabled=busy||jobRunning()||!ep;
-  $('b-finish').disabled=busy||jobRunning()||ep||(!a&&!r.session);
+function armed(){const m=motion();return !!m.armed&&m.state==='following';}
+function episodeActive(){const e=recording().active_episode;return e!==null&&e!==undefined;}
+function jobRunning(){return !!(S&&S.job&&S.job.state==='running');}
+function setV(id,text,cls){const el=$(id);el.textContent=text==null?'—':String(text);el.className='v'+(cls?' '+cls:'');}
+function setSrc(img,url,tile){
+  if(!url)return;
+  if(img.dataset.url!==url){img.dataset.url=url;img.src=url;}
+  if(!img.dataset.bound){img.dataset.bound='1';
+    img.onerror=()=>{$(tile).classList.add('offline');setTimeout(()=>{if(img.dataset.url)img.src=img.dataset.url+'?retry='+Date.now();},2000);};
+    img.onload=()=>$(tile).classList.remove('offline');}
 }
-function showState(){
-  if(!S){return;}
-  const m=S.remote&&S.remote.motion||{}, r=recording();
-  $('state').textContent=JSON.stringify({
-    remote_ok:S.ok,remote_error:S.error,
-    motion:m.state,armed:m.armed,leader_age_s:S.remote&&S.remote.leader_age_s,
-    gripper:m.gripper,forwarded:m.forwarded,error:m.error,abort:m.abort_reason,
-    session:r.session,episode:r.active_episode,episode_index:r.episode_index,
-    rows:r.rows,record_state:r.state,record_error:r.error,
-    conversion:S.remote&&S.remote.conversion,
-    cameras:(S.cameras||[]).map(c=>({name:c.name,state:c.state,age:c.frame_age_s,recording:c.recording,error:c.error})),
-    job:S.job
-  },null,1);
-  const c1=S.cameras&&S.cameras[0]||{},c2=S.cameras&&S.cameras[1]||{};
-  $('c1r').src=(c1.url||'')+'/stream/color.mjpg';$('c1d').src=(c1.url||'')+'/stream/depth.mjpg';
-  $('c2r').src=(c2.url||'')+'/stream/color.mjpg';$('c2d').src=(c2.url||'')+'/stream/depth.mjpg';
+function updateButtons(){
+  const allow=S&&S.allow_motion,a=armed(),r=recording(),ep=episodeActive(),busyNow=busy||jobRunning();
+  $('b-start').disabled=busyNow||!allow||a||!!r.session;
+  $('b-stop').disabled=busyNow||!a;
+  $('b-record').disabled=busyNow||!a||ep||!r.session;
+  $('b-save').disabled=busyNow||!ep;
+  $('b-discard').disabled=busyNow||!ep;
+  $('b-finish').disabled=busyNow||ep||(!a&&!r.session);
+}
+function render(){
+  if(!S)return;
+  const m=motion(),r=recording(),conv=(S.remote&&S.remote.conversion&&S.remote.conversion.last)||null;
+  $('mode').textContent=S.allow_motion?'运动已授权':'只读';
+  $('mode').className='badge '+(S.allow_motion?'on':'off');
+  $('followBadge').textContent=armed()?'跟随中':(m.state||'未跟随');
+  $('followBadge').className='badge '+(armed()?'on':'off');
+  setV('m-motion',m.state,armed()?'ok':(m.state==='error'?'bad':''));
+  setV('m-leader',m.leader_age_s==null?'—':(Number(m.leader_age_s).toFixed(2)+' s'),(m.leader_age_s!=null&&m.leader_age_s>3)?'bad':'ok');
+  setV('m-forwarded',m.forwarded);
+  const g=m.gripper||{};setV('m-gripper',g.closure==null?'—':Number(g.closure).toFixed(3),m.gripper_enabled?'':'warn');
+  setV('m-session',r.session||'—');
+  setV('m-episode',episodeActive()?r.active_episode:'—');
+  setV('m-episodes',r.episode_index);
+  setV('m-rows',r.rows);
+  setV('m-record',r.state,r.state==='failed'?'bad':(r.state==='recording'?'ok':''));
+  setV('m-convert',conv?conv.state:'—',conv&&conv.state==='failed'?'bad':(conv&&conv.state==='ready'?'ok':''));
+  const errors=[m.error,m.abort_reason,m.cleanup_fault,r.error,S.error,conv&&conv.state==='failed'?conv.error:null].filter(Boolean);
+  $('error').textContent=errors.length?('错误：'+errors.join(' | ')):'';
+  $('error').className='notice'+(errors.length?' bad':'');
+  $('notice').textContent=S.allow_motion?'启动/结束会话需要勾选安全确认；保存期间跟随继续。':'只读模式：未加 --enable-motion，启动跟随已禁用。';
   $('lelab').href=S.dataset_url||'#';
-  if(!$('task').value&&S.task)$('task').value=S.task;
-  $('notice').textContent=S.allow_motion?'运动已授权：启动/结束需要勾选安全确认。':'只读模式：启动跟随已禁用（未加 --enable-motion）。';
+  const cams=S.cameras||[];const urls=cams.map(c=>c.url||'');
+  setSrc($('c1r'),urls[0]&&urls[0]+'/stream/color.mjpg','t-c1r');
+  setSrc($('c1d'),urls[0]&&urls[0]+'/stream/depth.mjpg','t-c1d');
+  setSrc($('c2r'),urls[1]&&urls[1]+'/stream/color.mjpg','t-c2r');
+  setSrc($('c2d'),urls[1]&&urls[1]+'/stream/depth.mjpg','t-c2d');
+  const steps=(S.job&&S.job.steps)||[];
+  $('steps').innerHTML=steps.map(s=>`<li class="${esc(s.state)}">${esc(s.name)} — ${esc(s.state)}${s.error?'：'+esc(s.error):''}</li>`).join('');
+  if(S.job&&S.job.state==='failed')$('steps').insertAdjacentHTML('beforeend',`<li class="failed">${esc(S.job.error||'任务失败')}</li>`);
+  $('raw').textContent=JSON.stringify(S,null,1);
   updateButtons();
 }
-async function refresh(){try{const r=await fetch('/api/state');S=await r.json();}catch(e){S={ok:false,error:String(e),remote:{},cameras:[]};}showState();}
+async function refresh(){try{const r=await fetch('/api/state',{cache:'no-store'});S=await r.json();}catch(e){S={ok:false,error:String(e),remote:{},cameras:[],allow_motion:false};}render();}
 async function act(name,needsConfirm){
   if(needsConfirm&&!$('confirm').checked){alert('请先勾选运动范围安全确认');return;}
   busy=true;updateButtons();
-  try{
-    let body={task:$('task').value};
-    if(needsConfirm){const c=await post('/api/confirmation',{confirmed:true});body.token=c.token;}
-    await post('/api/action/'+name,body);
-  }catch(e){alert(e.message);}
+  try{let body={task:$('task').value};if(needsConfirm){const c=await post('/api/confirmation',{confirmed:true});body.token=c.token;}await post('/api/action/'+name,body);}
+  catch(e){alert(e.message);}
   busy=false;await refresh();
 }
 $('b-start').onclick=()=>act('start',true);
@@ -487,6 +573,10 @@ $('b-record').onclick=()=>act('record-start',false);
 $('b-save').onclick=()=>act('record-save',false);
 $('b-discard').onclick=()=>act('record-discard',false);
 $('b-finish').onclick=()=>act('finish',true);
+$('focus').onclick=()=>{document.body.classList.toggle('focus');$('focus').textContent=document.body.classList.contains('focus')?'显示控制':'最大化预览';};
+$('maximize').onclick=()=>{if(document.fullscreenElement)document.exitFullscreen();else document.documentElement.requestFullscreen();};
+document.addEventListener('fullscreenchange',()=>{$('maximize').textContent=document.fullscreenElement?'退出全屏':'全屏';});
+document.querySelectorAll('.tile .fs').forEach(btn=>{btn.onclick=()=>{const tile=btn.closest('.tile');if(document.fullscreenElement)document.exitFullscreen();else tile.requestFullscreen();};});
 refresh().then(()=>{if(S&&S.task)$('task').value=S.task;});setInterval(refresh,500);
 </script></body></html>"""
 

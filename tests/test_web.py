@@ -195,7 +195,11 @@ def test_http_panel_same_origin_and_confirmation():
     base = f"http://127.0.0.1:{server.server_port}"
     try:
         with urllib.request.urlopen(base + "/") as response:
-            assert b"Xcore" in response.read()
+            page = response.read()
+            assert b"Xcore" in page
+            assert b'name="viewport"' in page
+            assert b"requestFullscreen" in page
+            assert b"maximize" in page
         with urllib.request.urlopen(base + "/api/state") as response:
             assert json.load(response)["allow_motion"] is True
         body = json.dumps({"confirmed": True}).encode()

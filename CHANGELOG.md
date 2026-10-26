@@ -53,6 +53,8 @@
   单后台任务、一次性运动确认令牌、只读模式、状态与双 RGBD 预览、LeLab 入口。
 - 新增 pose10／joints 两种数据表示：joints 从 raw 关节字段构建七维 state/action，
   发布 `representation.json`；`pull_dataset.sh --pose|--joints|--list` 校验表示后拉取。
+- 重做网页面板布局：全高自适应、2×2 预览、单画面/整页全屏、预览最大化、
+  状态指标卡、MJPEG 只在 URL 变化时重连并在断流后重试。
 - 相机子模块升级到 `76d33ac`：同一采集 pipeline 新增无损 RGB／Z16 连续记录，
   有界队列／写盘线程／`COMPLETE.json` 提交标记；真实双机 10 秒各 150 帧零丢帧。
 - 新增 `[robot].return_mode`（`start`/`zero`/`none`），默认 `zero`：
