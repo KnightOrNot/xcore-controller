@@ -94,6 +94,16 @@ def _main(argv=None):
     s.add_argument("url")
     w = subs.add_parser("watch-motion", help="fail visibly when remote following stops")
     w.add_argument("url")
+    panel = subs.add_parser("web", help="local data-collection panel")
+    panel.add_argument("--controller-url")
+    panel.add_argument("--cam1-url")
+    panel.add_argument("--cam2-url")
+    panel.add_argument("--dataset-url")
+    panel.add_argument("--task")
+    panel.add_argument("--return-mode", choices=("start", "zero", "none"))
+    panel.add_argument("--allow-motion", action="store_true")
+    panel.add_argument("--port", type=int)
+    panel.add_argument("--confirmation-ttl-s", type=float)
     setup = subs.add_parser("setup-session", help="prepare recording services")
     setup.add_argument(
         "service", choices=("controller", "leader", "gripper", "cameras", "dataset")
@@ -140,6 +150,34 @@ def _main(argv=None):
             else action(config)
         )
         print(json.dumps(result, ensure_ascii=False))
+        return
+    if a.command == "web":
+        from .web import WebSettings, serve
+
+        settings = WebSettings(
+            controller_url=a.controller_url
+            or f"http://127.0.0.1:{roles['controller_port']}",
+            cam1_url=a.cam1_url or config["camera"]["cam1_url"],
+            cam2_url=a.cam2_url or config["camera"]["cam2_url"],
+            dataset_url=a.dataset_url
+            or f"http://127.0.0.1:{roles['dataset_port']}/edit-dataset",
+            task=a.task or config["recording"]["task"],
+            return_mode=a.return_mode or config["robot"]["return_mode"],
+            allow_motion=a.allow_motion,
+            host=config["web"]["host"],
+            port=a.port or config["web"]["port"],
+            confirmation_ttl_s=a.confirmation_ttl_s
+            or config["web"]["confirmation_ttl_s"],
+            refresh_hz=config["web"]["refresh_hz"],
+        )
+        gripper_setup = None
+        if config["robot"]["follow_gripper"]:
+            from . import session_setup
+
+            gripper_setup = lambda: session_setup.gripper(  # noqa: E731
+                config, activate=True
+            )
+        serve(settings, gripper_setup=gripper_setup)
         return
     if a.command == "status":
         print(json.dumps(request(a.url + "/status"), ensure_ascii=False, indent=2))

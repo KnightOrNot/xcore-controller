@@ -55,6 +55,15 @@ camera_max_frame_age_s = 0.5
 convert = true
 task = "CR7 GELLO teleoperation"
 
+[web]
+# 本地数采面板只绑定 loopback；浏览器经既有 SSH 隧道访问远端服务。
+host = "127.0.0.1"
+port = 8095
+# 运动确认令牌有效期；prepare/arm/结束返回都需要服务端一次性令牌。
+confirmation_ttl_s = 90
+# 页面状态轮询频率。
+refresh_hz = 2
+
 [paths]
 sdk_project = "xcore-sdk-python"
 gello_project = "xcore-gello-software"

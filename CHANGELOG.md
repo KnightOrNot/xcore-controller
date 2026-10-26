@@ -49,6 +49,10 @@
   `remote_stale_timeout_s`，修复 0.5 秒 inbox 超时导致的 arm 后误停。
 - 退出返回修复：CLI 显示 HTTP 错误体，服务端记录失败命令；返回前等待 RT 收尾到
   idle，避免 `movej` 在非 idle 状态被 409 拒绝。
+- 新增本地网页数采面板（`start_remote_record.sh --web`、`xcore-controller web`）：
+  单后台任务、一次性运动确认令牌、只读模式、状态与双 RGBD 预览、LeLab 入口。
+- 新增 pose10／joints 两种数据表示：joints 从 raw 关节字段构建七维 state/action，
+  发布 `representation.json`；`pull_dataset.sh --pose|--joints|--list` 校验表示后拉取。
 - 相机子模块升级到 `76d33ac`：同一采集 pipeline 新增无损 RGB／Z16 连续记录，
   有界队列／写盘线程／`COMPLETE.json` 提交标记；真实双机 10 秒各 150 帧零丢帧。
 - 新增 `[robot].return_mode`（`start`/`zero`/`none`），默认 `zero`：

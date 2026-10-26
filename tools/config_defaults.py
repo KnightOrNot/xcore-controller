@@ -59,6 +59,12 @@ SECTIONS = {
         "convert": "XCORE_CONVERT",
         "task": "XCORE_TASK",
     },
+    "web": {
+        "host": "XCORE_WEB_HOST",
+        "port": "XCORE_WEB_PORT",
+        "confirmation_ttl_s": "XCORE_WEB_CONFIRMATION_TTL_S",
+        "refresh_hz": "XCORE_WEB_REFRESH_HZ",
+    },
     "paths": {
         "sdk_project": "XCORE_SDK_PROJECT",
         "gello_project": "XCORE_GELLO_PROJECT",
@@ -189,6 +195,10 @@ def _builtin(section: str, key: str) -> Any:
         ("recording", "camera_max_frame_age_s"): 0.5,
         ("recording", "convert"): True,
         ("recording", "task"): "CR7 GELLO teleoperation",
+        ("web", "host"): "127.0.0.1",
+        ("web", "port"): 8095,
+        ("web", "confirmation_ttl_s"): 90,
+        ("web", "refresh_hz"): 2,
         ("paths", "sdk_project"): "xcore-sdk-python",
         ("paths", "gello_project"): "xcore-gello-software",
         ("paths", "gripper_project"): "xcore-gripper-2F85",
@@ -230,6 +240,8 @@ def validate(values: Values) -> None:
         ("roles", "leader_timeout_s"),
         ("recording", "raw_fps"),
         ("recording", "camera_max_frame_age_s"),
+        ("web", "confirmation_ttl_s"),
+        ("web", "refresh_hz"),
     }
     for section, keys in SECTIONS.items():
         for key in keys:
@@ -275,6 +287,14 @@ def validate(values: Values) -> None:
     for key in ("gello_port", "controller_port", "dataset_port"):
         if not 1 <= values.get("roles." + key) <= 65535:
             raise ValueError("invalid role service port")
+    if values.get("web.host") != "127.0.0.1":
+        raise ValueError("web.host must be 127.0.0.1")
+    if not 1 <= values.get("web.port") <= 65535:
+        raise ValueError("web.port must be in 1..65535")
+    if not 0.5 <= values.get("web.refresh_hz") <= 10:
+        raise ValueError("web.refresh_hz must be in 0.5..10")
+    if not 5 <= values.get("web.confirmation_ttl_s") <= 600:
+        raise ValueError("web.confirmation_ttl_s must be in 5..600")
     if not 1 <= values.get("roles.leader_poll_hz") <= 100:
         raise ValueError("leader_poll_hz must be in 1..100")
     if not 1 <= values.get("roles.status_poll_hz") <= 10:

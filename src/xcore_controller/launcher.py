@@ -38,8 +38,12 @@ def main(argv=None):
     subs.add_parser("stop-remote")
     subs.add_parser("stop-dataset")
     pull = subs.add_parser("pull")
-    pull.add_argument("dataset")
-    pull.add_argument("revision")
+    pull_mode = pull.add_mutually_exclusive_group()
+    pull_mode.add_argument("--pose", action="store_true")
+    pull_mode.add_argument("--joints", action="store_true")
+    pull.add_argument("--list", action="store_true")
+    pull.add_argument("dataset", nargs="?")
+    pull.add_argument("revision", nargs="?")
     a = p.parse_args(argv)
     target = config.get("remote.camera_ssh_target")
     if not re.fullmatch(r"[A-Za-z0-9_.-]+@[A-Za-z0-9.-]+", target):
@@ -67,7 +71,22 @@ def main(argv=None):
         )
         subprocess.run(ssh + [target, "systemctl --user stop " + names], check=True)
         return
+    if a.command == "pull" and a.list:
+        dataset_python = "$HOME/" + roles["remote_dataset_python"]
+        data_root = '"$HOME"/' + shlex.quote(roles["remote_data_root"])
+        remote = (
+            'cd "$HOME"/project/xcore-dataset && '
+            f"{dataset_python} -m xcore_dataset.cli datasets --root {data_root}"
+        )
+        result = subprocess.run(
+            ssh + [target, remote], check=True, capture_output=True, text=True
+        )
+        print(result.stdout, end="")
+        return
     if a.command == "pull":
+        if a.dataset is None or a.revision is None:
+            raise ValueError("pull requires DATASET_ID and REVISION, or --list")
+        expected_representation = "joints" if a.joints else "pose10"
         for value in (a.dataset, a.revision):
             if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*", value):
                 raise ValueError("invalid dataset/revision ID")
@@ -80,10 +99,29 @@ def main(argv=None):
         os.environ.setdefault("PYTHONPATH", str(dataset_project / "src"))
         sys.path.insert(0, str(dataset_project / "src"))
         from xcore_dataset.integrity import verify
+        from xcore_dataset.published import detect_representation
+
+        def check_representation(path):
+            actual = detect_representation(path)
+            if actual != expected_representation:
+                raise RuntimeError(
+                    f"representation mismatch: requested {expected_representation}, "
+                    f"payload is {actual}; partial data kept for inspection"
+                )
+            return actual
 
         if final.exists():
             verify(final)
-            print(json.dumps({"ok": True, "already_present": str(final)}))
+            actual = check_representation(final)
+            print(
+                json.dumps(
+                    {
+                        "ok": True,
+                        "already_present": str(final),
+                        "representation": actual,
+                    }
+                )
+            )
             return
         partial.mkdir(parents=True, exist_ok=True)
         remote = (
@@ -104,6 +142,7 @@ def main(argv=None):
             check=True,
         )
         verify(partial)
+        actual = check_representation(partial)
         python = dataset_project / ".venv/bin/python"
         subprocess.run(
             [
@@ -117,7 +156,11 @@ def main(argv=None):
             check=True,
         )
         partial.rename(final)
-        print(json.dumps({"ok": True, "path": str(final)}))
+        print(
+            json.dumps(
+                {"ok": True, "path": str(final), "representation": actual}
+            )
+        )
         return
     if a.command == "remote":
         port = roles["controller_port"]

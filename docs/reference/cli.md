@@ -11,6 +11,8 @@
 | `./scripts/start_gello_follow.sh [选项]` | 只读预览或真实六轴＋夹爪跟随 |
 | `./scripts/start_data_record.sh [选项]` | 跟随并记录从臂反馈，退出后转换 |
 | `./scripts/start_remote_record.sh --task TEXT --enable-motion` | 一键启动 GELLO／控制器／夹爪／双 RGBD／LeLab 及连接，确认后进入数采 |
+| `./scripts/start_remote_record.sh --web [--enable-motion]` | 启动本地网页数采面板；不加 `--enable-motion` 为只读 |
+| `./scripts/pull_dataset.sh [--pose|--joints] ID REV` | 按表示拉取已发布版本；`--list` 列出发现项 |
 | `./scripts/start_gripper.sh [选项]` | SSH 按需启动远端夹爪服务；`--status` 只读 |
 | `./scripts/stop_gripper.sh` | 完全停止远端夹爪服务（跟随锁占用时拒绝） |
 | `./scripts/start_camera.sh [preview|connect|start|stop|status|info|snapshot|disconnect]` | 双 D435i 管理 |
@@ -22,6 +24,8 @@
 
 远端数采入口默认自动准备服务；`--check-only` 只启动并检查，不激活、不对齐、不 arm。
 `--no-auto-start` 用于已有全部服务的手动调试。`--no-prepare` 跳过 NRT 对齐，arm 仍检查门限。
+`--web` 不进入终端 R/S/D 流程：页面通过同一远端 API 执行，长操作在后台任务中运行；
+`--web-port` 覆盖 `[web].port`。运动按钮另需服务端一次性确认令牌。
 一次现场 `y` 确认涵盖夹爪按需激活、对齐与跟随。Q 会结束本次自建的本地后台连接，
 远端服务仍按需待命，供后台转换和下次使用。
 
@@ -67,6 +71,18 @@ R 开始、S 保存、D 丢弃、P 状态、H 帮助。未保存片段保留 `.p
 - `--restart` 会先确认没有跟随任务，再重启远端服务；重启可能激活夹爪。
 - `--reset-stream` 清除断流超时锁定；`--local --serial-port PATH` 使用本机串口。
 - stop 持有与跟随相同的 `.follow.lock`；跟随运行时拒绝停止。
+
+## 网页面板的 HTTP 接口
+
+本地 loopback，仅用于页面自身：`GET /api/state`、`POST /api/confirmation`、
+`POST /api/action/{start|stop|record-start|record-save|record-discard|finish}`。
+POST 要求同源 JSON；`start`／`finish` 需要一次性 `token`。页面刷新/关闭不会触发操作。
+
+## 数据拉取
+
+`pull --pose` 要求 pose10，`--joints` 要求关节表示 `[q1..q6,g]`；两者互斥。
+旧 `pull ID REV` 等价于 `--pose`。拉取后校验 `representation.json`（旧版本按
+observation.state 维度推断），不匹配时保留 `<rev>.partial/` 并报错。
 
 ## SDK CLI
 

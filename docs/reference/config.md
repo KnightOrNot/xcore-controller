@@ -100,6 +100,20 @@ task = "CR7 GELLO teleoperation"
 `--skip-conversion`。远端 raw 目录默认是 `$HOME/project/xcore-data/raw`，
 可用 `remote-serve --data-root` 覆盖。
 
+## web
+
+```toml
+[web]
+host = "127.0.0.1"
+port = 8095
+confirmation_ttl_s = 90
+refresh_hz = 2
+```
+
+`host` 只允许 loopback。`confirmation_ttl_s` 是运动会话一次性令牌的有效期
+（5..600 秒），`refresh_hz` 是页面状态轮询频率（0.5..10）。网页不会另开 SDK、
+GELLO 串口或相机 pipeline。
+
 ## paths
 
 ```toml

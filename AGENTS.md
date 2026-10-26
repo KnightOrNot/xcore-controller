@@ -1086,3 +1086,60 @@ dataset `943119e`。父仓库已更新两个 submodule 指针；其余子模块�
 - 验收覆盖模式互斥／非法参数在 SSH 前拒绝、旧命令兼容、双表示维度与单位、
   RGBD／力／任务完整性、来源追溯、缺字段拒绝、错误数据拒绝、断点续传和重复拉取。
   完成后同步 README／CLI 帮助／配置及测试，再更新子仓库和父仓库指针。
+
+## 优化落地检查点（2026-10-26）
+
+用户要求实现“网页控制”和“数据传输参数”两个方案。两项均已实现并通过离线测试与
+只读远端联调；**未执行网页 arm、真实关节数据转换或任何新增运动**。
+
+### 一、统一网页控制与数采面板（已实现，浏览器交互待人工验收）
+
+- 新增 `src/xcore_controller/web.py` 与 `xcore-controller web`，由
+  `start_remote_record.sh --web [--enable-motion]` 启动，默认
+  `http://127.0.0.1:8095`，只监听 loopback。页面复用现有 GELLO／bridge／远端 API，
+  不打开第二个 SDK 会话、串口或相机 pipeline；预览直接使用两台相机已转发的 MJPEG。
+- 页面操作：填写任务、启动跟随（可选夹爪激活→prepare→arm→session/start）、停止跟随、
+  开始记录、保存、丢弃、结束会话（按 `return_mode`）。显示运动/夹爪/记录/转换状态、
+  行数、片段、错误和两路 RGB/深度预览，提供 LeLab 链接。
+- 所有长操作进入单一后台 job，页面轮询真实远端状态；job 运行期间拒绝重复请求。
+  成功以远端 armed/committed 状态为准，不把 HTTP 200 当作成功。保存/丢弃按钮按
+  episode 状态禁用；结束会话要求先保存或丢弃。
+- 运动安全：`--web` 不加 `--enable-motion` 为只读（只能看状态和预览）。start／finish
+  需要前端勾选 + 服务端一次性确认令牌（`[web].confirmation_ttl_s`，默认 90 秒）；
+  start 还检查远端未 armed、无活动 session、无 cleanup/fk 错误、GELLO 样本新鲜、
+  两台相机 streaming 且帧龄正常。夹爪激活由 web job 通过既有 session_setup 执行。
+- 刷新/关闭页面不触发任何操作；数采入口被 SIGTERM 时先终止 web 子进程（其 shutdown
+  只发送 `stop` 释放跟随，不回零、不保存、不丢弃）。网页与 CLI 共用
+  `logs/.remote-record.lock` 和远端会话互斥。
+- 实测（无运动）：本地 GELLO 服务＋既有远端 hardware 角色＋临时 SSH 隧道，
+  `start_remote_record.sh --no-auto-start --web` 成功启动面板；`/api/state` 显示
+  `motion=idle`、`allow_motion=false`、两台相机 streaming；只读 start 被 409 拒绝，
+  跨源 POST 被 403；退出启动器后 web/bridge 均清理，端口释放。带 `--enable-motion`
+  的页面点击与真实 arm 尚未验收。
+- 新增 `[web]` 配置与 `XCORE_WEB_*` 覆盖；`docs/reference/{cli,config}.md`、README、
+  测试同步。浏览器排版和按钮点击仍需人工验收。
+
+### 二、拉取 pose／joints 表示（已实现，合成数据验收）
+
+- xcore-adapters 新增 `JOINT_NAMES`／`validate_joint_state`：`[q1..q6, closure]`，
+  rad 与 0..1 闭合度。xcore-dataset 的 `convert` 增加 `representation`：
+  - pose10：保持原 10 维；
+  - joints：state=`joints_rad`＋`closure`，action=`target_rad`＋`target_closure`；
+    缺失字段明确拒绝，**不对 pose10 做 IK**，也不替换成下一帧实测。
+- 发布目录新增 `representation.json`（schema、名称、单位、action 语义、TCP、来源
+  session／episode、源 COMMITTED SHA-256、dataset_id／revision），并进入 READY 清单；
+  质量报告记录 representation。joints job 默认 dataset_id 为 `<session>-joints`，
+  与 pose10 目录分开；job 记录 representation，旧 job 缺省按 pose10。
+- 新增 `datasets --root` 只读列表；旧数据集无标记时按 observation.state 维度推断。
+- `pull_dataset.sh` 支持 `--pose`／`--joints`（互斥）和 `--list`；旧
+  `ID REVISION` 保持 pose10 完整包行为。拉取后先校验 representation，匹配后才
+  partial→正式目录；已存在版本也会检查表示，避免同 ID 互相覆盖。
+- 远端合成会话实测：`queue --representation joints` → job ready →
+  `datasets` 显示 `joints-check-20261026-joints/rev-0001` 为 joints；本地
+  `pull --joints` 校验 SHA-256 与 loader 回读通过（4 帧、7 维）；对同一版本执行
+  `--pose` 被 representation mismatch 拒绝并保留 partial。
+- 现场两条旧真实会话的转换任务此前因 `conflicting image metadata at same
+  timestamp` 失败，本次未处理，也不代表关节表示已用真实数据验收。真实关节数据集
+  需重新录制后用 `queue --representation joints` 生成。
+- 测试：controller 109 项、adapter 6 项、dataset 9 项通过；Ruff、脚本语法和
+  `pull --list`／远端转换实测通过。

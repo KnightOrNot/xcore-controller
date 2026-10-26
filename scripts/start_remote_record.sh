@@ -9,6 +9,8 @@ enable_motion=false
 prepare=true
 auto_start=true
 check_only=false
+web=false
+web_port=""
 while (($#)); do
     case "$1" in
         --task) task="${2:?missing task}"; shift 2 ;;
@@ -16,14 +18,19 @@ while (($#)); do
         --no-prepare) prepare=false; shift ;;
         --no-auto-start) auto_start=false; shift ;;
         --check-only) check_only=true; shift ;;
+        --web) web=true; shift ;;
+        --web-port) web_port="${2:?missing port}"; shift 2 ;;
         -h|--help)
             cat <<'EOF'
 用法: scripts/start_remote_record.sh --task "任务" --enable-motion [--no-prepare]
+      scripts/start_remote_record.sh --task "任务" --web [--enable-motion] [--web-port N]
 
 默认按需启动本地 GELLO、远端 hardware API、夹爪、双 RGBD、LeLab 及 SSH 隧道。
 首次安装 SDK／远端部署／SSH 密钥及现场标定须已完成。
 --check-only     只启动并检查服务，不激活夹爪、不对齐、不 arm
 --no-auto-start  使用已手动启动的服务，不自动启动整套环境
+--web            启动本地数采网页，不进入终端 R/S/D 流程
+--web-port N     覆盖 config/default.toml 的 [web].port
 
 按键：R 开始 episode，S 保存，D 丢弃，P 状态，Q 退出。
 --enable-motion 经一次现场确认后，必要时激活夹爪，再对齐（prepare）和 arm；
@@ -59,6 +66,7 @@ echo "本次启动日志：$session_logs"
 export XCORE_SESSION_LOG_DIR="$session_logs"
 
 bridge_pid=""
+web_pid=""
 watch_pid=""
 gello_pid=""
 tunnel_pid=""
@@ -114,6 +122,10 @@ cleanup() {
         if ! remote_call session/stop >/dev/null; then
             exit_status=1
         fi
+    fi
+    if [[ -n "$web_pid" ]]; then
+        kill "$web_pid" 2>/dev/null
+        wait "$web_pid" 2>/dev/null
     fi
     if [[ -n "$bridge_pid" ]]; then
         kill "$bridge_pid" 2>/dev/null
@@ -195,6 +207,26 @@ else
 fi
 bridge_pid=$!
 sleep 1
+
+if [[ "$web" == true ]]; then
+    web_args=(
+        web --controller-url "$controller_url"
+        --cam1-url "$XCORE_CAM1_URL" --cam2-url "$XCORE_CAM2_URL"
+        --dataset-url "http://127.0.0.1:$XCORE_DATASET_SERVICE_PORT/edit-dataset"
+        --task "$task" --return-mode "$XCORE_RETURN_MODE"
+    )
+    [[ "$enable_motion" == true ]] && web_args+=(--allow-motion)
+    [[ -z "$web_port" ]] || web_args+=(--port "$web_port")
+    echo "网页数采模式：运动$([[ "$enable_motion" == true ]] && echo 已授权 || echo 未授权)。"
+    if [[ -x "$root_dir/.venv/bin/xcore-controller" ]]; then
+        "$root_dir/.venv/bin/xcore-controller" "${web_args[@]}" &
+    else
+        run "${web_args[@]}" &
+    fi
+    web_pid=$!
+    wait "$web_pid"
+    exit $?
+fi
 
 if [[ "$enable_motion" == true ]]; then
     echo "即将按需激活夹爪、执行对齐（prepare）并进入实时跟随。"

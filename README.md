@@ -35,6 +35,7 @@ adapter 是无设备访问的数据包。新入口环境安装见[首阶段说�
 | `./scripts/start_gello_follow.sh` | 六轴＋夹爪跟随；真实运动需 `--enable-motion` |
 | `./scripts/start_data_record.sh` | 旧七维跟随记录；加 `--remote` 使用新远端链路 |
 | `./scripts/start_remote_record.sh` | 新链路数采：本地 GELLO＋bridge＋远端 SDK／双相机 |
+| `./scripts/start_remote_record.sh --web` | 同一入口启动本地网页数采面板 |
 | `./scripts/convert_dataset.sh` | 远端转换排队／执行／重试／查看 |
 | `./scripts/start_gripper.sh` | 按需启动远端夹爪服务 |
 | `./scripts/stop_gripper.sh` | 完全停止远端夹爪服务；先结束跟随及退出返回 |
@@ -46,7 +47,7 @@ adapter 是无设备访问的数据包。新入口环境安装见[首阶段说�
 | `./scripts/stop_remote_controller.sh` | 停止新架构远端只读／模拟／运动服务 |
 | `./scripts/start_dataset.sh` | 启动远端 LeLab 只读浏览及本地隧道 |
 | `./scripts/stop_dataset.sh` | 停止远端数据浏览服务 |
-| `./scripts/pull_dataset.sh ID REVISION` | 拉取已发布完整数据集、SHA-256 校验及 loader 回读 |
+| `./scripts/pull_dataset.sh [--pose\|--joints] ID REVISION` | 拉取对应表示的数据集；`--list` 查看可用版本 |
 
 遇到 `J1(+183.5° 限 -180~+180°)` 时，是本地跟随限位拒绝启动，
 不是主臂串口或夹爪网络连接失败。主从对齐误差很小与姿态是否在限位内是两项独立检查。
@@ -842,3 +843,38 @@ S 保存会停止该片段的录制、等待图像落盘并封存；主臂数据
 2026-10-26 已在现场完成两轮当前姿态保持的 RT 启停、夹爪约 10 raw 单位的小幅动作，
 并封存 31 行真实双 RGBD 验收数据；保存期间主臂数据继续推进。验收不包含六轴大幅轨迹，
 未执行 prepare 或回零。该数据任务标记为 VALIDATION ONLY，不能当作训练示范。
+
+## 网页数采面板（2026-10-26）
+
+在同一数采入口加 `--web` 即可启动本地 loopback 面板（默认
+`http://127.0.0.1:8095`，端口见 `[web].port`）：
+
+```bash
+# 只读查看：能看状态和两路 RGBD，不能启动跟随
+./scripts/start_remote_record.sh --task "pick and place" --web
+# 允许运动：页面仍需勾选安全确认，后端再校验一次性确认令牌
+./scripts/start_remote_record.sh --task "pick and place" --web --enable-motion
+```
+
+页面提供任务填写、启动/停止跟随、开始记录、保存、丢弃、结束会话，显示运动/夹爪/
+记录/转换状态和两台相机的 RGB、深度实时预览。长操作在一个后台任务中执行，页面轮询
+真实远端状态；重复点击会被拒绝。`prepare`、`arm` 和结束返回需要服务端一次性确认
+令牌，浏览器勾选本身不是唯一校验。关闭或刷新页面不会自动 arm、保存、丢弃或停止硬件；
+请使用页面按钮或明确的 CLI 命令。网页与 CLI 共用同一数采入口锁和远端会话互斥。
+初版 LeLab 仍只读浏览，不开放上传、删除、合并、训练或运动接口。
+
+## 拉取末端或关节表示（2026-10-26）
+
+```bash
+./scripts/pull_dataset.sh --list
+./scripts/pull_dataset.sh --pose DATASET_ID REVISION
+./scripts/pull_dataset.sh --joints DATASET_ID REVISION
+```
+
+`--pose` 拉取 pose10（xyz、旋转矩阵前两列、夹爪闭合度），`--joints` 拉取
+`[q1..q6,g]`（rad＋闭合度）。两者都保留双 RGBD、12 维力/掩码、任务和时间元数据。
+远端转换时关节数据**从 raw 的 joints_rad/target_rad 构建**，不会对 pose10 做 IK；
+旧数据缺少关节字段会明确拒绝。关节转换默认发布为 `<session>-joints`，因此不会与
+pose10 版本互相覆盖；`--list` 会显示每个版本的 representation。拉取后先校验
+`representation.json`（旧 EE10 版本按特征维度推断），不匹配时保留 partial 供排查，
+不会发布成正式目录。旧命令 `pull_dataset.sh ID REVISION` 仍按 pose10 完整包行为工作。
