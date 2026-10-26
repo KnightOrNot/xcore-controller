@@ -50,7 +50,9 @@
       <pre id="xp-path" style="display:none;white-space:pre-wrap;overflow-wrap:anywhere;background:#020617;padding:12px;border-radius:6px"></pre>
       <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:18px">
         <button type="button" id="xp-copy" style="display:none">复制路径</button>
-        <button type="button" id="xp-start">开始拉取</button><button id="xp-close">关闭</button>
+        <button type="button" id="xp-start">开始拉取</button>
+        <button type="button" id="xp-reveal" style="display:none">打开路径</button>
+        <button id="xp-close">关闭</button>
       </div></form>`;
     if (modal) document.body.appendChild(dialog);
     else dialog.style.cssText = 'margin-top:20px';
@@ -58,6 +60,9 @@
       button.style.cssText = 'border:1px solid #64748b;border-radius:6px;padding:8px 14px;background:#1e293b;color:white;cursor:pointer';
     });
     dialog.querySelector('#xp-start').onclick = start;
+    element('reveal').onclick = reveal;
+    element('reveal').style.display = 'none';
+    element('copy').style.display = 'none';
     if (!modal) dialog.querySelector('#xp-close').style.display = 'none';
     dialog.querySelector('#xp-copy').onclick = async () => {
       try { await navigator.clipboard.writeText(dialog.querySelector('#xp-path').textContent); }
@@ -66,6 +71,27 @@
   }
   const element = id => dialog.querySelector('#xp-' + id);
   function status(text) { element('status').textContent = text; }
+  // A finished pull has nothing left to start; the useful action is the folder.
+  function showStart(show) {
+    element('start').style.display = show ? '' : 'none';
+    element('reveal').style.display = show ? 'none' : '';
+  }
+  async function reveal() {
+    const path = element('path').textContent;
+    if (!path) return;
+    element('reveal').disabled = true;
+    try {
+      const response = await fetch('/api/xcore/reveal', {
+        method:'POST', headers:{'Content-Type':'application/json','X-Xcore-Token':token},
+        body:JSON.stringify({path})
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || '打开失败');
+      status('已在文件管理器中打开：' + data.opened);
+    } catch (error) {
+      status('无法打开文件夹：' + error.message);
+    } finally { element('reveal').disabled = false; }
+  }
   function render(job) {
     if (!job) return;
     current = job;
@@ -74,6 +100,7 @@
     element('format').value = job.representation;
     element('format').disabled = busy;
     element('start').disabled = busy;
+    showStart(!(job.state === 'ready' && job.path));
     const source = document.getElementById('xp-source');
     if (source) {
       source.disabled = busy;
@@ -105,6 +132,7 @@
     element('dataset').textContent = dataset;
     element('path').style.display = 'none';
     element('copy').style.display = 'none';
+    showStart(true);
     status('选择格式后开始拉取，完成后将在此显示本地绝对路径。');
     if (dialog.tagName === 'DIALOG' && !dialog.open) dialog.showModal();
     try {
@@ -115,6 +143,7 @@
       } else {
         current = null; busy = false;
         element('start').disabled = false; element('format').disabled = false;
+        showStart(true);
       }
     } catch (error) { status('本地服务不可用：' + error.message); }
   }
@@ -122,7 +151,7 @@
     const dataset = current && busy ? current.dataset : selected();
     if (!dataset) { status('请先选择远端数据集版本。'); return; }
     if (busy) return;
-    busy = true; element('start').disabled = true;
+    busy = true; element('start').disabled = true; showStart(true);
     const source = document.getElementById('xp-source');
     if (source) source.disabled = true;
     element('path').style.display = 'none'; element('copy').style.display = 'none';
@@ -147,38 +176,42 @@
     if (/^[a-f0-9]{12}$/.test(uiRevision)) query.set('xcore_ui', uiRevision);
     return '/upload' + (query.size ? '?' + query.toString() : '');
   }
-  function decorate() {
-    let link = document.getElementById('xcore-pull-link');
-    if (link && link.closest('#xcore-data-toolbar')) {
-      link.href = uploadUrl(location.pathname.startsWith('/edit-dataset') ? selected() : null);
-      return;
-    }
-    if (!location.pathname.startsWith('/edit-dataset') || !selected()) {
-      if (link) link.remove();
-      return;
-    }
-    const upload = [...document.querySelectorAll('button')].find(button =>
+  // A real <button> with the upstream Upload's own classes renders exactly like
+  // Merge/Upload. The plain anchor it replaces could not inherit them.
+  function uploadButton() {
+    return [...document.querySelectorAll('button')].find(button =>
       button.textContent.trim() === 'Upload' || button.querySelector('svg.lucide-upload'));
-    if (!upload) return;
-    if (!link) {
-      link = document.createElement('a');
-      link.id = 'xcore-pull-link';
-      link.textContent = 'Pull 到本地';
-      link.className = upload.className;
-      link.style.cssText = 'display:inline-flex;align-items:center;justify-content:center;white-space:nowrap;text-decoration:none;padding:8px 12px;border:1px solid #38bdf8;border-radius:6px;color:#7dd3fc;background:#0f172a;font:inherit';
-      link.setAttribute('aria-label', 'Pull 到本地');
-      // This plain anchor requests a new document. It has no React router
-      // handler and does not depend on intercepting the upstream Upload.
-      upload.insertAdjacentElement('afterend', link);
-    }
-    if (link.previousElementSibling !== upload) upload.insertAdjacentElement('afterend', link);
-    link.href = uploadUrl(selected());
   }
-  document.addEventListener('click', event => {
-    const link = event.target instanceof Element ? event.target.closest('a#xcore-pull-link') : null;
-    if (link) link.href = uploadUrl(location.pathname.startsWith('/edit-dataset') ? selected() : null);
-    // Keep the native default action, outside React's event delegation.
-  }, true);
+  function decorate() {
+    let button = document.getElementById('xcore-pull-link');
+    if (!location.pathname.startsWith('/edit-dataset') || !selected()) {
+      if (button) button.remove();
+      return;
+    }
+    const upload = uploadButton();
+    if (!upload) {
+      if (button) button.remove();
+      return;
+    }
+    if (!button || button.className !== upload.className) {
+      if (button) button.remove();
+      button = document.createElement('button');
+      button.id = 'xcore-pull-link';
+      button.type = 'button';
+      button.textContent = 'Pull 到本地';
+      button.className = upload.className;
+      button.setAttribute('aria-label', 'Pull 到本地');
+      // Plain navigation, outside React's router and event delegation.
+      button.addEventListener('click', event => {
+        event.preventDefault();
+        event.stopPropagation();
+        const target = uploadUrl(selected());
+        button.dataset.target = target;
+        location.assign(target);
+      });
+    }
+    if (button.previousElementSibling !== upload) upload.insertAdjacentElement('afterend', button);
+  }
   async function initUploadPage() {
     const source = document.getElementById('xp-source');
     if (!source) return;

@@ -530,6 +530,8 @@ details pre{max-height:220px;overflow:auto;background:#0d1117;border:1px solid v
 .tile:fullscreen{border:0;border-radius:0}
 .tile:fullscreen img{object-fit:contain}
 a{color:var(--accent)}
+header a.hbtn{padding:9px 12px;border:1px solid var(--line);border-radius:7px;background:#21262d;color:var(--text);font-size:13px;text-decoration:none;line-height:1.2}
+header a.hbtn:hover{border-color:#8b949e;background:#30363d}
 @media (max-width:1100px){
   body{overflow:auto}main{grid-template-columns:1fr;min-height:auto}
   aside{overflow:visible}.previews{min-height:70vh}
@@ -540,7 +542,7 @@ a{color:var(--accent)}
   <span id="mode" class="badge off">只读</span>
   <span id="followBadge" class="badge off">未跟随</span>
   <span class="spacer"></span>
-  <a id="lelab" target="_blank" rel="noopener">LeLab 数据浏览</a>
+  <a id="lelab" class="hbtn" target="_blank" rel="noopener">LeLab 数据浏览</a>
   <button id="focus" type="button">最大化预览</button>
   <button id="maximize" type="button">全屏</button>
 </header>

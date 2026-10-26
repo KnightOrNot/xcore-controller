@@ -11,7 +11,7 @@ const {JSDOM,VirtualConsole} = require('jsdom');
     if (/navigation/.test(error.message)) fullNavigations++;
     else throw error;
   });
-  const dom = new JSDOM('<html><head></head><body><div id="react-root"><button><svg class="lucide lucide-upload"></svg>Upload</button></div></body></html>', {
+  const dom = new JSDOM('<html><head></head><body><div id="react-root"><button class="btn secondary"><svg class="lucide lucide-upload"></svg>Upload</button></div></body></html>', {
     url:'http://127.0.0.1:8090/edit-dataset?dataset=source/rev-0001', runScripts:'outside-only', virtualConsole:console
   });
   const {window} = dom;
@@ -26,21 +26,26 @@ const {JSDOM,VirtualConsole} = require('jsdom');
   const pull = window.document.getElementById('xcore-pull-link');
   assert.equal(upload.textContent.trim(), 'Upload');
   assert.equal(pull.textContent, 'Pull 到本地');
-  assert.equal(upload.nextElementSibling, pull);
-  assert.equal(pull.getAttribute('href'), '/upload?dataset=source%2Frev-0001');
+  assert.equal(pull.tagName, 'BUTTON', 'Pull must be a button to inherit Merge/Upload styling');
+  assert.equal(pull.className, upload.className, 'Pull must reuse the Upload classes verbatim');
+  assert.equal(upload.nextElementSibling, pull, 'Pull must sit next to Merge/Upload');
   pull.click();
   await tick();
   assert.equal(originalUploadClicked, false);
-  assert.equal(fullNavigations, 1, 'native Pull link must navigate a full document');
+  assert.equal(pull.dataset.target, '/upload?dataset=source%2Frev-0001');
+  assert.equal(fullNavigations, 1, 'Pull must navigate a full document');
   assert.equal(window.document.querySelector('dialog'), null);
-  // React-style toolbar replacement after SPA navigation must also be adapted.
+  // React replacing the toolbar must not strand or duplicate the control.
   window.history.pushState({}, '', '/edit-dataset?dataset=second/rev-0002');
-  window.document.getElementById('react-root').innerHTML = '<button><svg class="lucide lucide-upload"></svg>Upload</button>';
+  window.document.getElementById('react-root').innerHTML = '<button class="btn"><svg class="lucide lucide-upload"></svg>Upload</button>';
   await tick();
-  window.document.getElementById('xcore-pull-link').click();
+  const replaced = window.document.getElementById('xcore-pull-link');
+  assert.equal(replaced.previousElementSibling, window.document.querySelector('#react-root button'));
+  assert.equal(replaced.className, 'btn');
+  replaced.click();
   await tick();
   assert.equal(fullNavigations, 2);
-  assert.equal(window.document.getElementById('xcore-pull-link').getAttribute('href'), '/upload?dataset=second%2Frev-0002');
+  assert.equal(replaced.dataset.target, '/upload?dataset=second%2Frev-0002');
   assert.equal(originalUploadClicked, false);
   dom.window.close();
   // Load the adapter after DOMContentLoaded, as can happen on an existing SPA.
@@ -50,28 +55,33 @@ const {JSDOM,VirtualConsole} = require('jsdom');
   await tick();
   late.window.eval(script.replace('__XCORE_TOKEN__', 'test-token'));
   assert.equal(late.window.document.querySelector('button').textContent, 'Upload');
-  assert.equal(late.window.document.getElementById('xcore-pull-link').getAttribute('href'), '/upload?dataset=source%2Frev-0001');
+  const latePull = late.window.document.getElementById('xcore-pull-link');
+  assert.equal(latePull.tagName, 'BUTTON');
+  assert.equal(latePull.previousElementSibling, late.window.document.querySelector('button'));
   late.window.close();
 
-  // The server-owned toolbar must survive SPA navigation even if the React
-  // tree is replaced entirely, and must not depend on a matching Upload button.
-  const shell = new JSDOM('<html><body><nav id="xcore-data-toolbar"><a id="xcore-pull-link" href="/upload">Pull 到本地</a></nav><div id="root">Home</div></body></html>', {
+  // No fixed toolbar: the control only exists where Merge/Upload exist, and it
+  // is removed again when the SPA leaves the dataset page.
+  const shell = new JSDOM('<html><body><div id="root">Home</div></body></html>', {
     url:'http://127.0.0.1:8090/', runScripts:'outside-only'
   });
   shell.window.eval(script.replace('__XCORE_TOKEN__', 'test-token'));
   await tick();
-  const persistent = shell.window.document.getElementById('xcore-pull-link');
+  assert.equal(shell.window.document.getElementById('xcore-pull-link'), null);
   shell.window.history.pushState({}, '', '/edit-dataset?dataset=source%2Frev-0001');
   shell.window.document.getElementById('root').innerHTML = '<h1>Browse dataset</h1>';
   await tick();
-  assert.equal(shell.window.document.getElementById('xcore-pull-link'), persistent);
-  assert.equal(persistent.getAttribute('href'), '/upload?dataset=source%2Frev-0001');
-  assert.equal(persistent.parentElement.id, 'xcore-data-toolbar');
+  assert.equal(shell.window.document.getElementById('xcore-pull-link'), null,
+    'no button is injected on a page without the Merge/Upload toolbar');
+  shell.window.document.getElementById('root').innerHTML =
+    '<button class="btn"><svg class="lucide lucide-upload"></svg>Upload</button>';
+  await tick();
+  assert.ok(shell.window.document.getElementById('xcore-pull-link'));
   shell.window.history.pushState({}, '', '/');
   shell.window.document.getElementById('root').innerHTML = '<h1>Home again</h1>';
   await tick();
-  assert.equal(shell.window.document.getElementById('xcore-pull-link'), persistent);
-  assert.equal(persistent.getAttribute('href'), '/upload');
+  assert.equal(shell.window.document.getElementById('xcore-pull-link'), null,
+    'leaving the dataset page must drop the injected button');
   shell.window.close();
 
   // An old cached document automatically moves to the current UI version,
@@ -91,16 +101,15 @@ const {JSDOM,VirtualConsole} = require('jsdom');
   cached.window.eval(versionedScript);
   assert.equal(upgrades,1,'cached entry must automatically request a versioned document');
   cached.window.close();
-  const fresh = new JSDOM('<html><body><nav id="xcore-data-toolbar"><a id="xcore-pull-link">Pull 到本地</a></nav><div id="root"></div></body></html>', {
+  const fresh = new JSDOM('<html><body><button class="btn"><svg class="lucide lucide-upload"></svg>Upload</button><div id="root"></div></body></html>', {
     url:'http://127.0.0.1:8090/edit-dataset?dataset=source%2Frev-0001&xcore_ui='+revision,
     runScripts:'outside-only',virtualConsole:upgradeConsole
   });
   fresh.window.eval(versionedScript);
   await tick();
   assert.equal(upgrades,1,'current-version first load must not reload');
-  const href = new URL(fresh.window.document.getElementById('xcore-pull-link').href);
-  assert.equal(href.searchParams.get('dataset'),'source/rev-0001');
-  assert.equal(href.searchParams.get('xcore_ui'),revision);
+  const current = fresh.window.document.getElementById('xcore-pull-link');
+  assert.ok(current, 'a current-version dataset page must still get the Pull button');
   fresh.window.fetch = async url => {
     assert.equal(url,'/api/xcore/ui');
     return {ok:true,json:async () => ({revision:'abcdef012345'})};
@@ -108,15 +117,23 @@ const {JSDOM,VirtualConsole} = require('jsdom');
   fresh.window.dispatchEvent(new fresh.window.PageTransitionEvent('pageshow',{persisted:true}));
   await tick();
   assert.equal(upgrades,2,'restored browser history must detect a newer server version');
+  current.click();
+  const href = new URL(current.dataset.target, 'http://127.0.0.1:8090');
+  assert.equal(href.searchParams.get('dataset'),'source/rev-0001');
+  assert.equal(href.searchParams.get('xcore_ui'),revision);
   fresh.window.close();
 
   // Both the direct URL and the toolbar destination use this exact page.
   const page = fs.readFileSync(path.join(__dirname, '../src/xcore_controller/lelab_upload.html'), 'utf8');
   for (const url of ['http://127.0.0.1:8090/upload', 'http://127.0.0.1:8090/upload?dataset=source%2Frev-0001']) {
   const direct = new JSDOM(page, {url, runScripts:'outside-only'});
-  let directRequest;
+  let directRequest, revealRequest;
   direct.window.fetch = async (url, options) => {
     if (url === '/api/datasets') return {ok:true, json:async () => ({datasets:['source/rev-0001']})};
+    if (url === '/api/xcore/reveal') {
+      revealRequest = JSON.parse(options.body);
+      return {ok:true, json:async () => ({opened:revealRequest.path})};
+    }
     assert.equal(url, '/api/xcore/pulls');
     if (options?.method === 'POST') {
       directRequest = JSON.parse(options.body);
@@ -141,11 +158,19 @@ const {JSDOM,VirtualConsole} = require('jsdom');
   assert.deepEqual(directRequest, {dataset:'source/rev-0001', representation:'joints'});
   assert.equal(direct.window.document.getElementById('xp-path').textContent, '/local/direct');
   assert.notEqual(direct.window.document.getElementById('xp-copy').style.display, 'none');
+  // A finished pull has nothing to start: the primary action becomes the folder.
+  const startButton = direct.window.document.getElementById('xp-start');
+  const revealButton = direct.window.document.getElementById('xp-reveal');
+  assert.equal(startButton.style.display, 'none', 'finished pull must not offer 开始拉取');
+  assert.notEqual(revealButton.style.display, 'none');
+  revealButton.click();
+  await tick();
+  assert.deepEqual(revealRequest, {path:'/local/direct'});
   format.value = 'pose10';
   direct.window.document.getElementById('xp-start').click();
   await tick();
   assert.equal(directRequest.representation, 'pose10');
   direct.window.close();
   }
-  global.console.log('LeLab DOM check passed: independent Pull link, native navigation, selected dataset, formats, path, SPA');
+  global.console.log('LeLab DOM check passed: Pull button beside Merge/Upload, class reuse, navigation, formats, path, SPA');
 })().catch(error => { console.error(error); process.exitCode = 1; });

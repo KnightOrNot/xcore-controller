@@ -202,13 +202,20 @@ cam1/cam2 分别使用 8086/8087；本地页面为 `http://127.0.0.1:8086` 和
 `[roles].dataset_tunnel_port`（8091），两者由配置校验必须不同。改动端口后先停旧网关，
 否则旧隧道仍占用 8090。`serve()` 在隧道就绪前不打印地址，避免提前给出不可用链接。
 
-- 网关只做只读浏览加两类写操作：`POST /api/xcore/pulls`（本地拉取）和转发
-  `/dataset-info`、`/delete-dataset`（后者仍受 dataset 端 `allow_delete` 与
+- 网关只做只读浏览加三类操作：`POST /api/xcore/pulls`（本地拉取）、
+  `POST /api/xcore/reveal`（在文件管理器中打开已拉取目录）和转发 `/dataset-info`、
+  `/delete-dataset`（后者仍受 dataset 端 `allow_delete` 与
   `maintenance.delete_revision` 的路径校验）。其他 POST 一律 403。
+- 浏览器不能跳转 `file://`，所以“打开路径”由网关在本机执行 `xdg-open`（回退 `gio open`）。
+  `reveal()` 只接受 `[recording].lerobot_data_root` 之下的已存在目录，用 `Popen` 参数
+  列表启动、不经过 shell；不要把任意路径传给打开器。
 - 拉取需要 `X-Xcore-Token`（页面脚本注入的一次性进程令牌），且强制同源与合法 Host；
   脚本本身拒绝 `Sec-Fetch-Site: cross-site`。
-- `/upload` 由网关自己渲染 `lelab_upload.html`，不进入上游 Hub 上传页。工具栏
-  `lelab_toolbar.html` 由服务端注入到每个入口 HTML 的 `<body>`，位于 React 根节点之外；
+- `/upload` 由网关自己渲染 `lelab_upload.html`，不进入上游 Hub 上传页。数据集查看页
+  （`/edit-dataset` 且已选中版本）由 `lelab_pull.js` 在 Merge／Upload 之后插入一个
+  **真 `<button>`**，直接复用 Upload 的 `className` 以保持同样式，点击后整页跳转到
+  `/upload`。不要改回自定义配色、顶部固定工具栏，也不要用 `<a>` 冒充按钮——继承不到
+  上游样式，用户已就此反馈过一次。离开查看页或版本失效时必须移除该按钮。
   前端资源版本用 `xcore_ui` 查询串做缓存破断，升级后要完整刷新一次首页。
 - 所选表示缺失时，网关经 SSH 调用 dataset `export DATASET REV REV --representation …`，
   按来源 `COMMITTED.json` 摘要生成独立版本，再走 `launcher pull --pose/--joints`

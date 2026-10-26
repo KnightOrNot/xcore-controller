@@ -9,11 +9,11 @@ import os
 import re
 import secrets
 import shlex
+import shutil
 import subprocess
 import sys
 import threading
 import time
-from html import escape
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, parse_qsl, urlencode, urlsplit, urlunsplit
@@ -46,7 +46,6 @@ def frontend_revision():
     for name in (
         "dataset_browser.py",
         "lelab_pull.js",
-        "lelab_toolbar.html",
         "lelab_upload.html",
     ):
         digest.update(Path(__file__).with_name(name).read_bytes())
@@ -82,28 +81,17 @@ def last_json(output):
     raise RuntimeError("data command did not return a successful result")
 
 
-def browser_html(body, request_path):
-    """Render a native toolbar outside the upstream React-owned root.
+def browser_html(body):
+    """Attach the adapter script to every LeLab entry document.
 
-    Every entry document carries it, so SPA home -> datasets navigation cannot
-    discard the Pull entry, and it remains usable even if adapter JS fails.
+    The Pull control is inserted next to the upstream Merge/Upload buttons by
+    the adapter, so it inherits their styling and lives on the dataset page
+    instead of taking over the top of the window.
     """
-    dataset = parse_qs(urlsplit(request_path).query).get("dataset", [""])[0]
-    destination = "/upload"
-    if re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,63}/rev-[0-9]{4,}", dataset):
-        destination += "?" + urlencode({"dataset": dataset})
-    toolbar = (
-        Path(__file__)
-        .with_name("lelab_toolbar.html")
-        .read_text()
-        .replace("__PULL_URL__", escape(browser_entry_url(destination), quote=True))
-        .encode()
-    )
     if b"</head>" not in body:
         body = b"<!doctype html><html><head></head><body>" + body + b"</body></html>"
     adapter = f'<script src="/xcore-pull.js?v={frontend_revision()}"></script>'
-    body = body.replace(b"</head>", adapter.encode() + b"</head>", 1)
-    return re.sub(rb"(<body\b[^>]*>)", lambda m: m[1] + toolbar, body, count=1)
+    return body.replace(b"</head>", adapter.encode() + b"</head>", 1)
 
 
 class Pulls:
@@ -164,6 +152,35 @@ class Pulls:
     def status(self):
         with self.lock:
             return {"local_pull": True, "job": dict(self.job) if self.job else None}
+
+    def reveal(self, path):
+        """Open a finished local pull in this machine's file manager.
+
+        A page cannot navigate to file://, so the gateway runs the opener here.
+        Only the configured local dataset root is reachable.
+        """
+        if not isinstance(path, str) or not path.strip():
+            raise ValueError("缺少本地路径")
+        root = (self.root / self.config.get("recording.lerobot_data_root")).resolve()
+        target = Path(path).resolve()
+        if target != root and root not in target.parents:
+            raise ValueError("只能打开本地数据集目录")
+        if not target.is_dir():
+            raise ValueError("本地路径不存在或不是目录")
+        opener = shutil.which("xdg-open")
+        command = [opener, str(target)] if opener else None
+        if command is None:
+            gio = shutil.which("gio")
+            command = [gio, "open", str(target)] if gio else None
+        if command is None:
+            raise RuntimeError("本机没有 xdg-open／gio，无法打开文件管理器")
+        subprocess.Popen(
+            command,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+        return {"opened": str(target)}
 
     def start(self, dataset, representation):
         if not isinstance(dataset, str) or not re.fullmatch(
@@ -358,11 +375,13 @@ def make_server(port, upstream_port, pulls):
             if not self.trusted():
                 return
             path = urlsplit(self.path).path
-            if path != "/api/xcore/pulls":
+            if path not in ("/api/xcore/pulls", "/api/xcore/reveal"):
                 if path in ("/dataset-info", "/delete-dataset"):
                     self.proxy()
                 else:
-                    self.send(403, {"error": "此页面仅支持浏览和拉取到本地"})
+                    self.send(
+                        403, {"error": "此页面仅支持浏览、拉取到本地和打开本地目录"}
+                    )
                 return
             if not secrets.compare_digest(
                 self.headers.get("X-Xcore-Token", ""), pulls.token
@@ -376,9 +395,15 @@ def make_server(port, upstream_port, pulls):
                 body = json.loads(self.rfile.read(length))
                 if not isinstance(body, dict):
                     raise ValueError("invalid request")
+                if path == "/api/xcore/reveal":
+                    self.send(200, pulls.reveal(body.get("path")))
+                    return
                 job = pulls.start(body.get("dataset"), body.get("representation"))
             except (ValueError, TypeError) as exc:
                 self.send(400, {"error": str(exc)})
+                return
+            except RuntimeError as exc:
+                self.send(500, {"error": str(exc)})
                 return
             self.send(202, {"job": job})
 
@@ -422,7 +447,7 @@ def make_server(port, upstream_port, pulls):
                 )
                 body = None
                 if html:
-                    body = browser_html(response.read(), self.path)
+                    body = browser_html(response.read())
                 self.send_response(response.status)
                 response_started = True
                 for key, value in response.getheaders():

@@ -85,19 +85,22 @@ def test_proxy_injects_adapter_and_preserves_video_range(browser):
     assert status == 200 and json.loads(body)["local_pull"] is True
 
 
-@pytest.mark.parametrize("entry", ["/", "/edit-dataset?dataset=demo%2Frev-0001"])
-def test_toolbar_is_native_html_outside_react_root(entry):
+def test_entry_document_loads_adapter_without_taking_over_the_header():
     body = b'<html><head></head><body><div id="root"></div></body></html>'
-    result = browser_html(body, entry)
-    assert result.index(b'id="xcore-data-toolbar"') < result.index(b'id="root"')
-    assert b'id="xcore-pull-link"' in result and b'target="_blank"' in result
-    assert b"Pull " in result
+    result = browser_html(body)
+    assert result.index(b"/xcore-pull.js") < result.index(b"</head>")
+    # The Pull control belongs on the dataset page next to Merge/Upload, so the
+    # entry document must not inject a fixed toolbar above the app.
+    assert b'id="xcore-data-toolbar"' not in result
+    assert b'id="xcore-pull-link"' not in result
+    assert result.endswith(b"</body></html>")
 
 
-def test_fragment_entry_is_wrapped_and_always_has_native_toolbar():
-    result = browser_html(b'<h1>Home</h1><a href="/edit-dataset">Datasets</a>', "/")
+def test_fragment_entry_is_wrapped_and_loads_the_adapter():
+    result = browser_html(b'<h1>Home</h1><a href="/edit-dataset">Datasets</a>')
     assert b"</head>" in result and b"/xcore-pull.js" in result
-    assert b'id="xcore-data-toolbar"' in result
+    assert b"</body>" in result
+    assert b'id="xcore-data-toolbar"' not in result
 
 
 def test_normal_entry_upgrades_once_and_preserves_selected_dataset(browser):
@@ -109,7 +112,7 @@ def test_normal_entry_upgrades_once_and_preserves_selected_dataset(browser):
     assert "dataset=demo%2Frev-0001" in headers["Location"]
     assert "episode=2" in headers["Location"]
     status, _, body = request("GET", headers["Location"], follow=False)
-    assert status == 200 and b'id="xcore-data-toolbar"' in body
+    assert status == 200 and b"/xcore-pull.js" in body
 
 
 def test_cached_html_validation_never_reuses_original_upstream_document(browser):
@@ -122,7 +125,7 @@ def test_cached_html_validation_never_reuses_original_upstream_document(browser)
             "If-Modified-Since": "Sat, 17 Oct 2026 15:46:21 GMT",
         },
     )
-    assert status == 200 and b'id="xcore-data-toolbar"' in body
+    assert status == 200 and b"/xcore-pull.js" in body
     assert "Last-Modified" not in headers and "ETag" not in headers
     assert "no-store" in headers["Cache-Control"] and headers["Expires"] == "0"
     assert frontend_revision().encode() in body
@@ -246,6 +249,44 @@ def test_pull_requires_same_origin_token_and_never_forwards_upload(
     assert (
         request("GET", "/api/xcore/pulls", headers={"Host": "evil.example"})[0] == 403
     )
+
+
+def test_reveal_opens_only_a_directory_inside_the_local_dataset_root(
+    browser, tmp_path, monkeypatch
+):
+    pulls, gateway, request = browser
+    opened = []
+    monkeypatch.setattr(
+        dataset_browser.shutil,
+        "which",
+        lambda name: "/usr/bin/xdg-open" if name == "xdg-open" else None,
+    )
+    monkeypatch.setattr(
+        dataset_browser.subprocess,
+        "Popen",
+        lambda command, **kwargs: opened.append(command),
+    )
+    root = tmp_path / "data" / "lerobot"
+    target = root / "demo" / "rev-0001"
+    target.mkdir(parents=True)
+    headers = {
+        "Content-Type": "application/json",
+        "X-Xcore-Token": pulls.token,
+        "Origin": f"http://127.0.0.1:{gateway.server_port}",
+    }
+
+    def post(path):
+        body = json.dumps({"path": str(path)})
+        return request("POST", "/api/xcore/reveal", body, headers)
+
+    assert post(target)[0] == 200
+    assert opened == [["/usr/bin/xdg-open", str(target)]]
+    bad_token = {**headers, "X-Xcore-Token": "bad"}
+    body = json.dumps({"path": str(target)})
+    assert request("POST", "/api/xcore/reveal", body, bad_token)[0] == 403
+    assert post(tmp_path / "elsewhere")[0] == 400
+    assert post(root / "demo" / "missing")[0] == 400
+    assert opened == [["/usr/bin/xdg-open", str(target)]]
 
 
 @pytest.mark.parametrize(
