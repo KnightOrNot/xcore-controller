@@ -74,3 +74,17 @@ data/raw/session_<时间>/episodes/episode_000000.jsonl
 
 所有项目的默认参数和覆盖方式见[配置](reference/config.md)与
 [子模块配置](reference/submodule-config.md)。
+
+## 文档导航
+
+上面的流程图描述的是**本地 SDK 旧链路**。当前日常链路是远端角色：本地只跑 GELLO
+服务和界面，CR7 运动、双相机采集、LeRobot 转换与 LeLab 都在远端主机。
+
+| 想知道 | 看 |
+| --- | --- |
+| 怎么装、怎么跑、配置什么 | [README](../README.md) |
+| 远端要装什么、怎么部署 | [远端部署](remote-deploy.md) |
+| 安装接线、标定、跟随、排障细节 | [操作手册](OPERATIONS.md) |
+| 各阶段实施记录与已修复的真机问题 | [历史记录](HISTORY.md) |
+| 数据字段契约（pose10／wrench12） | [数据方案](DATASET_EE10_DESIGN.md) |
+| 端口、路径、参数默认值 | [配置](reference/config.md)、[CLI](reference/cli.md) |

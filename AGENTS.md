@@ -49,7 +49,9 @@ controller 根 uv 源和测试路径指向仓库内 `xcore-adapters`，数据拉
 子模块修改先在子仓库提交，再更新父仓库指针；发布时先推送子仓库，再推送父仓库。
 用户仅要求 commit 时不自动 push。正常部署使用固定版本，
 不要随意 `submodule update --remote`。强推只有当次明确授权才执行。
-不要把密码、SSH 私钥、相机画面、现场标定、数据集或 `.venv` 提交到 Git。
+不要把密码、SSH 私钥、相机画面、数据集、日志或 `.venv` 提交到 Git。
+现场标定与相机序列号已按用户要求纳入 Git（见“默认配置与文档约定”的例外），
+改动它们时先确认现场；密码和私钥在任何情况下都不提交。
 
 ## 默认配置与文档约定
 
@@ -60,14 +62,19 @@ controller 根 uv 源和测试路径指向仓库内 `xcore-adapters`，数据拉
 - controller 脚本通过 `tools/config_defaults.py` 读取，不解析 TOML 文本。
 - 各包的 `src/<package>/default.toml`（GELLO 为
   `xcore_gello_software/default.toml`）指向仓库配置，避免安装后出现第二份。
-- 现场标定、退出姿态、相机 JSON、数据集和日志仍使用 Git 忽略文件，
-  不写入 `default.toml`。
+- 退出姿态、数据集和日志仍使用 Git 忽略文件，不写入 `default.toml`。
+- **例外（2026-10-26 用户明确要求）**：`xcore-sdk-python/config/cr7_calib.json`
+  已提交到 SDK 仓库，`camera-realsense-d435i/deploy/camN.json` 一直是提交的；二者都是
+  192.168.2.160 现场值，公开仓库可见。换机器必须重新标定、改序列号。
 - 文档骨架与相邻 agilex 项目一致：根目录 `README.md`、`CHANGELOG.md`、
   `CONTRIBUTING.md`、`THIRD_PARTY_NOTICES.md`（controller 还有 `AGENTS.md`），
   以及 `docs/index.md`、`docs/installation.md`、
   `docs/reference/{cli,config,errors}.md`；相机和 controller 另有
   `docs/cameras.md` / `docs/stream.md`，controller 还有
   `docs/reference/submodule-config.md`。
+- controller 根 `README.md` 只做**快速开始 + 基本配置 + 命令索引**；详细操作步骤在
+  `docs/OPERATIONS.md`（原 README），远端安装流程在 `docs/remote-deploy.md`。
+  新增细节写进 docs，不要把 README 重新堆成手册。
 
 ## 当前现场连接
 
@@ -106,7 +113,8 @@ unit 停止，不要通过反复重启或改用其他串口“修复”，也不
 - `follow_limits.py` 统一准备与 RT 使用的限位交集；起始真机姿态和目标都必须通过检查。
   之前的 J1 +183.5°、J6 +176.7° 报错分别涉及限位，不要通过删除检查、自动截断或
   无条件 ±2π 包装来“修复”。实际关节空间和现场标定必须明确。
-- `config/cr7_calib.json` 为现场标定，通常被 Git 忽略；新 clone 不能凭空运行真机跟随。
+- `config/cr7_calib.json` 为 192.168.2.160 的现场标定，已随 SDK 仓库提交；其他机械臂
+  必须重新标定，不能沿用该文件的 offset。
   启动对齐需要保持主臂不动；旧会话完全退出前不能启动第二个会话。
 - 退出返回由 `config/default.toml` 的 `[robot].return_mode` 控制，默认 `zero`：
   - `zero`：返回六轴 0°。

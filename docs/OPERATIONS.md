@@ -1,3 +1,13 @@
+# 操作手册（原 README）
+
+本文件是 xcore-controller 的详细操作手册：安装、接线、标定、跟随、夹爪、相机、
+数模转换与历史排障记录。**新用户请先读 [README](../README.md)**，需要细节时再回到这里。
+
+其中的“阶段 2/3/4”“2026-10-22/26”等小节是当时的实施记录，可能已被后续改动覆盖；
+以代码、`config/default.toml` 和当前实测为准。
+
+---
+
 # xcore-controller：GELLO → CR7 跟随与远程相机
 
 本指南从 **Ubuntu 24.04、x86_64 的空白控制电脑**开始，完成安装、通信、标定和真机跟随。
@@ -5,27 +15,27 @@
 CR7 保持六轴接口。首次完成以下步骤后，每次实验使用文末的[日常启动命令](#8-日常启动)。
 
 远程双 D435i 相机可以独立启停，不需要启动跟随，见[相机快速启动](#11-远程双-d435i-相机)。
-后续 AI 协作先阅读 [AGENTS.md](AGENTS.md)，其中记录工程边界、现场配置与当前任务。
+后续 AI 协作先阅读 [AGENTS.md](../AGENTS.md)，其中记录工程边界、现场配置与当前任务。
 
 **2026-10-22 新架构进度**：本地 GELLO 服务、远端 SDK 只读 worker、数据桥、
 远端运动 worker／主臂映射／vendor FK 已实现；合成数据 LeRobot 转换、LeLab 浏览和
 本地拉取已验收。远端真机运动、连续多流采集仍需现场验收，不能把代码存在当作已部署。
-新入口、现场硬件检查及剩余工作见 [远端数据阶段说明](docs/REMOTE_DATA_MILESTONE.md)。
+新入口、现场硬件检查及剩余工作见 [远端数据阶段说明](REMOTE_DATA_MILESTONE.md)。
 下文原有跟随命令仍使用旧链路，不要与远端 SDK 会话同时运行。
 
 ## 默认配置
 
-所有可复现的默认参数集中在 [config/default.toml](config/default.toml)：CR7 地址、
+所有可复现的默认参数集中在 [config/default.toml](../config/default.toml)：CR7 地址、
 GELLO 串口、远端夹爪/相机主机、跟随限速、记录路径和超时。优先级为
 命令行参数 > 已存在的 `XCORE_*` 环境变量 > TOML > 脚本内置默认值。
 使用 `XCORE_CONFIG=/path/experiment.toml ./scripts/...` 可以选择另一份配置。
 
 原有五个 submodule 各自提供 `config/default.toml`，由各自 CLI 的 `--config` 覆盖。
 新增 `xcore-adapters`、`xcore-dataset` 已作为独立 submodule 引入；dataset 有独立配置，
-adapter 是无设备访问的数据包。新入口环境安装见[首阶段说明](docs/REMOTE_DATA_MILESTONE.md)。
+adapter 是无设备访问的数据包。新入口环境安装见[首阶段说明](REMOTE_DATA_MILESTONE.md)。
 现场标定、退出姿态、相机 JSON 和数据集仍是 Git 忽略的现场文件，不写入默认配置。
-详见[配置参考](docs/reference/config.md)、[子模块配置](docs/reference/submodule-config.md)
-和[架构说明](docs/index.md)；安装、相机与排障见 [docs/](docs/index.md)。
+详见[配置参考](reference/config.md)、[子模块配置](reference/submodule-config.md)
+和[架构说明](index.md)；安装、相机与排障见 [docs/](index.md)。
 
 本仓库的 shell 命令统一位于 `scripts/`，以下命令均从 `xcore-controller` 根目录执行：
 
@@ -53,7 +63,7 @@ adapter 是无设备访问的数据包。新入口环境安装见[首阶段说�
 不是主臂串口或夹爪网络连接失败。主从对齐误差很小与姿态是否在限位内是两项独立检查。
 准备阶段与 RT 驱动现在共用限位交集，会在准备上电／移动前报告超限关节。
 请先将主臂映射目标和 CR7 当前姿态调整到允许范围内，再重新启动。
-完整范围及处理说明见 [SDK 跟随说明](xcore-sdk-python/README.md#2-预览再启动跟随)。
+完整范围及处理说明见 [SDK 跟随说明](../xcore-sdk-python/README.md#2-预览再启动跟随)。
 
 ## 1. 接线与地址
 
@@ -624,8 +634,8 @@ Ctrl+C 或故障退出后先关闭记录和跟随、处理六轴退出返回，�
 恢复／返回动作不写入 episode，未保存片段保留为 `.partial`。
 未保存片段保留为 `.partial`。原始数据在 `data/raw/`，LeRobot 数据在 `data/lerobot/`。
 
-工程细节与原 README 内容见 [docs/DEVELOPMET.md](docs/DEVELOPMET.md)；
-扩展说明见 [数据记录](docs/DATA_RECORDING.md)、[现场夹爪服务管理](docs/GRIPPER_SERVER_UPDATE.md)。
+工程细节与原 README 内容见 [docs/DEVELOPMET.md](DEVELOPMET.md)；
+扩展说明见 [数据记录](DATA_RECORDING.md)、[现场夹爪服务管理](GRIPPER_SERVER_UPDATE.md)。
 
 ## 11. 远程双 D435i 相机
 
@@ -667,8 +677,8 @@ uv sync --locked --no-dev --project camera-realsense-d435i
 当前两台以 USB 2.1 连接，已实测同时 640×480、15fps 采集及四路 MJPEG。
 cam2 测试时有效深度较少，需检查现场朝向／遮挡和距离。
 深度为原生视角，未对齐 RGB；两台没有硬同步，也尚未接入机械臂数据记录。
-完整 CLI、部署和验收边界见 [相机 README](camera-realsense-d435i/README.md) 与
-[相机开发文档](camera-realsense-d435i/docs/DEVELOPMENT.md)。
+完整 CLI、部署和验收边界见 [相机 README](../camera-realsense-d435i/README.md) 与
+[相机开发文档](../camera-realsense-d435i/docs/DEVELOPMENT.md)。
 
 ## 远端运动角色（2026-10-22 阶段 2）
 
