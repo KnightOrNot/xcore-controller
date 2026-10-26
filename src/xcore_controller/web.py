@@ -534,7 +534,7 @@ function render(){
   $('followBadge').textContent=armed()?'跟随中':(m.state||'未跟随');
   $('followBadge').className='badge '+(armed()?'on':'off');
   setV('m-motion',m.state,armed()?'ok':(m.state==='error'?'bad':''));
-  setV('m-leader',m.leader_age_s==null?'—':(Number(m.leader_age_s).toFixed(2)+' s'),(m.leader_age_s!=null&&m.leader_age_s>3)?'bad':'ok');
+  const leaderAge=(S.remote&&S.remote.leader_age_s);setV('m-leader',leaderAge==null?'—':(Number(leaderAge).toFixed(2)+' s'),(leaderAge!=null&&leaderAge>3)?'bad':'ok');
   setV('m-forwarded',m.forwarded);
   const g=m.gripper||{};setV('m-gripper',g.closure==null?'—':Number(g.closure).toFixed(3),m.gripper_enabled?'':'warn');
   setV('m-session',r.session||'—');

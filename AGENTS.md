@@ -1181,3 +1181,24 @@ dataset `943119e`。父仓库已更新两个 submodule 指针；其余子模块�
   全部 READY；远端 LeLab `/datasets` 已列出，`/api/sample` 可读回真实 pose10、
   task 和 640×480 深度。未改动机器人、相机或夹爪状态。
 - 验证：dataset 10 项、controller recording 6 项通过；无新增运动。
+
+### LeLab 删除按钮与网页面板按钮检查（2026-10-26）
+
+- “delete failed” 原因：`app.py` 的只读中间件只放行 `POST /dataset-info`，
+  LeLab 的 `POST /delete-dataset` 被 403 拒绝；服务本身没有删除路由。
+- 新增受控删除 `xcore_dataset/maintenance.py` 与 `POST /delete-dataset`：
+  只允许 `<published_root>/<dataset_id>/rev-NNNN/` 且存在 `READY.json`；
+  拒绝路径穿越、绝对路径、symlink、raw/staging/jobs 和 `delete_from_hub=true`。
+  `[server].allow_delete` 控制开放（当前远端为 true），删除不可恢复但不触碰 raw。
+  新增 CLI `delete DATASET REVISION --root … --yes`。
+- 远端 dataset 服务已重启加载新代码；用临时 revision 验证 HTTP 删除成功，
+  随后按用户意图删除了三个测试版本：
+  `e2e-check-20261022`、`joints-check-20261026-joints`、`synthetic-check-20261022`。
+  远端 LeLab `/datasets` 现仅剩下真实会话（含新发布的
+  `session_20261026_130329/rev-0001`）；对应 raw 数据保留，未删除。
+- 网页面板按钮核对：启动（gripper→prepare→arm→session）、停止、开始记录、保存、
+  丢弃、结束会话、最大化预览、整页/单画面全屏均有对应动作；新增 record-discard
+  与 finish 无 episode 的测试，修正主臂帧龄显示（原 JS 从 motion 里取，实际在
+  remote 顶层，现改为 `S.remote.leader_age_s`）。真实 arm 相关按钮仍需现场确认后
+  验收；只读/HTTP 层与离线状态机测试通过。
+- 验证：dataset 19 项（含 9 项删除测试）、controller 109 项、web 8 项通过。

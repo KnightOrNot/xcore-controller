@@ -151,6 +151,17 @@ def test_record_save_and_preconditions():
         control.submit("record-save", {})
 
 
+def test_record_discard_closes_the_episode():
+    control, remote = make()
+    remote.motion.update(armed=True, state="following")
+    remote.recording.update(session="session_test", active_episode=0, state="recording")
+    control.submit("record-discard", {"reason": "test"})
+    job = wait_job(control)
+    assert job["state"] == "ready", job
+    assert [step["name"] for step in job["steps"]] == ["episode/discard"]
+    assert remote.recording["active_episode"] is None
+
+
 def test_finish_requires_episode_decision_then_exits_and_stops_session():
     control, remote = make()
     remote.motion.update(armed=True, state="following")
