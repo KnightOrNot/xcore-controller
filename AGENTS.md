@@ -5,6 +5,19 @@
 最后更新：2026-10-26。默认参数已统一到各项目的 `config/default.toml`，文档结构对齐
 agilex；双相机第一版已部署并通过硬件采集测试，验收边界与本次交接见文末。
 
+## ROS 2 CI 维护（2026-10-29）
+
+本次仅更新 `xcore-gello-software` 的 ROS 2 工作流和父仓库固定引用，其余六个
+子模块保持既有版本。工作流在 Dev Containers 步骤临时设置
+`BUILDX_BAKE_ENTITLEMENTS_FS=0`，兼容生成在构建目录之外的 Dockerfile；
+`push: never` 关闭未配置目标的容器镜像推送；checkout 更新到 v6，测试命令加
+`set -e`。待 runner 的 Compose 包含 docker/compose#14325 后可移除兼容设置。
+
+本地验证：GELLO 30 项离线测试、现有 CI lint、编译与 CLI help，controller
+146 项离线回归，以及 ROS 2 工作流 actionlint 均通过。本地 HTTP 测试需要
+`NO_PROXY=127.0.0.1,localhost`，避免被环境代理转发。远端 ROS 2 CI 在推送后
+单独验证；没有部署远端服务、打开设备或执行运动。
+
 ## 用户目标和工程边界
 
 - 将 GELLO 主臂六轴和扳机映射到 ROKAE xMate CR7 从臂及 Robotiq 2F-85 夹爪，
